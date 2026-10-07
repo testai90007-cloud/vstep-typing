@@ -1,0 +1,17 @@
+# dependencies
+node_modules/
+
+# next.js
+.next/
+out/
+
+# env files (never commit secrets)
+.env
+.env*.local
+.env*.development
+.env*.production
+
+# misc
+.DS_Store
+*.log
+*.tsbuildinfo
