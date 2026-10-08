@@ -1993,3 +1993,41 @@ table.hist-table { width: 100%; border-collapse: collapse; font-size: 0.88rem; m
 .rs-meta { font-size: 0.78rem; color: var(--faint); white-space: nowrap; flex-shrink: 0; font-variant-numeric: tabular-nums; }
 
 /* ------------------------------------------------------------------ */
+
+/* --- Hero with DarkVeil animated background ---------------------------------- */
+.hero-veil {
+  position: relative;
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: 22px;
+  background: var(--bg);
+  text-align: center;
+  padding: clamp(60px, 8vw, 110px) clamp(16px, 4vw, 48px);
+  margin-bottom: 6px;
+}
+.veil-bg {
+  position: absolute;
+  inset: 0;
+  opacity: 0.55;
+}
+.veil-bg::after {
+  /* soften the veil into the page background at the edges */
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: radial-gradient(ellipse 88% 88% at 50% 50%, transparent 52%, var(--bg) 100%);
+  pointer-events: none;
+}
+.hero-content { position: relative; z-index: 1; }
+.hero-veil .brand {
+  margin: 24px 0 0;
+  font-size: clamp(2.6rem, 6.5vw, 4.3rem);
+  font-weight: 700;
+  letter-spacing: -0.03em;
+  line-height: 1.08;
+  text-wrap: balance;
+}
+.hero-veil .lead { margin-left: auto; margin-right: auto; margin-top: 20px; font-size: 0.95rem; }
+@media (prefers-reduced-motion: reduce) {
+  .veil-bg { opacity: 0.35; }
+}

@@ -1,8 +1,9 @@
 'use client';
 
-// Home: slim hero + FlowingMenu (4 skills, click goes straight to the skill
-// page) + utilities.
+// Home: hero with DarkVeil animated background + FlowingMenu (4 skills,
+// click goes straight to the skill page) + utilities.
 
+import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import {
   ChartBarIcon,
@@ -11,6 +12,7 @@ import {
   ArrowRightIcon,
 } from '@heroicons/react/24/outline';
 import FlowingMenu, { type FlowingMenuItem } from '@/components/FlowingMenu';
+import DarkVeil from '@/components/DarkVeil';
 
 const MENU_ITEMS: FlowingMenuItem[] = [
   { link: '/writing', text: 'Luyện Viết', image: '/images/writing.jpg' },
@@ -40,20 +42,48 @@ const TOOLS = [
   },
 ];
 
+// Tracks the site's own theme (html[data-theme]) so the veil can switch
+// between its light and dark renderings.
+function useIsDark() {
+  const [isDark, setIsDark] = useState(false);
+  useEffect(() => {
+    const el = document.documentElement;
+    const update = () => setIsDark(el.getAttribute('data-theme') === 'dark');
+    update();
+    const obs = new MutationObserver(update);
+    obs.observe(el, { attributes: true, attributeFilter: ['data-theme'] });
+    return () => obs.disconnect();
+  }, []);
+  return isDark;
+}
+
 export default function HomePage() {
+  const isDark = useIsDark();
+
   return (
     <main className="page">
-      <section className="hero hero-clean" style={{ paddingBottom: 4 }}>
-        <span className="pill-badge">
-          <span className="dot grad-dot" aria-hidden="true" />
-          858 đề thi thử · 4 kỹ năng VSTEP
-        </span>
-        <h1 className="brand">
-          Luyện thi VSTEP,
-          <br />
-          <span className="grad-text">gọn và chính xác.</span>
-        </h1>
-        <p className="lead">Bấm vào một kỹ năng để vào luyện ngay.</p>
+      <section className="hero hero-veil">
+        <div className="veil-bg" aria-hidden="true">
+          <DarkVeil
+            lightMode={!isDark}
+            speed={0.5}
+            noiseIntensity={0.05}
+            warpAmount={0.3}
+            resolutionScale={0.75}
+          />
+        </div>
+        <div className="hero-content">
+          <span className="pill-badge">
+            <span className="dot grad-dot" aria-hidden="true" />
+            858 đề thi thử · 4 kỹ năng VSTEP
+          </span>
+          <h1 className="brand">
+            Luyện thi VSTEP,
+            <br />
+            <span className="grad-text">gọn và chính xác.</span>
+          </h1>
+          <p className="lead">Bấm vào một kỹ năng để vào luyện ngay.</p>
+        </div>
       </section>
 
       <div style={{ height: 'min(58vh, 540px)', minHeight: 380, position: 'relative', margin: '18px 0 8px' }}>
