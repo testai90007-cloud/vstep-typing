@@ -15,12 +15,12 @@ import {
   ExclamationTriangleIcon,
   KeyIcon,
   MicrophoneIcon,
-  SparklesIcon,
 } from '@heroicons/react/24/outline';
 import { getAiSettings } from '@/lib/aiKey';
 import { SPEAKING_CRITERIA } from '@/lib/speaking';
 import VoicePill from '@/components/VoicePill';
 import CountUp from '@/components/CountUp';
+import LatticeLoader from '@/components/LatticeLoader';
 import { useIsDark } from '@/components/useIsDark';
 
 function fmt(sec: number): string {
@@ -436,10 +436,9 @@ export function RecorderPanel({
         </div>
       )}
       {phase === 'uploading' && (
-        <p style={{ color: 'var(--muted)', display: 'flex', alignItems: 'center', gap: 9 }}>
-          <SparklesIcon width={18} height={18} style={{ color: 'var(--accent-strong)' }} />
-          AI đang nghe và chấm bài của bạn, chờ một chút…
-        </p>
+        <div style={{ color: 'var(--muted)' }}>
+          <LatticeLoader status="working" label="AI đang nghe và chấm bài" showTimer fontSize={13} />
+        </div>
       )}
       {error && (
         <p style={{ color: 'var(--wrong)', fontSize: '0.9rem', display: 'flex', alignItems: 'flex-start', gap: 8 }}>

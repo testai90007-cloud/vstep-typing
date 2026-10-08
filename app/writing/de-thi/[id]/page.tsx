@@ -29,6 +29,7 @@ import {
   type WritingScore,
 } from '@/lib/writing-score-prompts';
 import CountUp from '@/components/CountUp';
+import LatticeLoader from '@/components/LatticeLoader';
 
 const MIN_WORDS_1 = 120;
 const MIN_WORDS_2 = 250;
@@ -179,10 +180,7 @@ function ScoreCard({
       <div className="score-card-label">PART {part} — {part === 1 ? 'EMAIL/LETTER' : 'ESSAY'}</div>
       <div className="score-card-body">
         {state.status === 'scoring' && (
-          <>
-            <span className="spinner" aria-hidden />
-            <span className="score-card-hint">Đang chấm…</span>
-          </>
+          <LatticeLoader status="working" label="AI đang chấm" showTimer fontSize={13} />
         )}
         {state.status === 'done' && state.data && (
           <>
