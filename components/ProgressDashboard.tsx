@@ -52,6 +52,9 @@ export interface WritingSession {
   accuracy: number;
   duration_sec: number;
   created_at: string;
+  ai_score?: number | null;
+  ai_part1?: number | null;
+  ai_part2?: number | null;
 }
 
 export interface SpeakingSession {
@@ -566,7 +569,12 @@ export function DashboardView({
       skill: 'Viết',
       Icon: PencilSquareIcon,
       title: writingTitle(s.template_id),
-      score: s.accuracy != null ? `${Math.round(s.accuracy)}%` : '–',
+      score:
+        s.ai_score != null
+          ? `${Number(s.ai_score).toFixed(1)}/10`
+          : s.accuracy != null
+            ? `${Math.round(s.accuracy)}%`
+            : '–',
       href:
         s.template_id && s.template_id.startsWith('de-')
           ? `/writing/de-thi/${s.template_id}`
@@ -1017,13 +1025,27 @@ export function DashboardView({
                               <span className="hist-date">{fmtDate(s.created_at)}</span>
                               <span className="hist-title">{writingTitle(s.template_id)}</span>
                               <span className="hist-score">
-                                {s.accuracy != null ? `${Math.round(s.accuracy)}%` : '–'}
+                                {s.ai_score != null
+                                  ? `${Number(s.ai_score).toFixed(1)}/10`
+                                  : s.accuracy != null
+                                    ? `${Math.round(s.accuracy)}%`
+                                    : '–'}
                               </span>
                             </>
                           }
                         >
                           <KV k="Bài luyện" v={writingTitle(s.template_id)} />
                           <KV k="Chế độ" v={MODE_LABEL[s.mode] || s.mode} />
+                          {s.ai_score != null && (
+                            <KV
+                              k="Điểm AI"
+                              v={`${Number(s.ai_score).toFixed(1)}/10${
+                                s.ai_part1 != null && s.ai_part2 != null
+                                  ? ` (Task 1: ${Number(s.ai_part1).toFixed(1)} · Task 2: ${Number(s.ai_part2).toFixed(1)})`
+                                  : ''
+                              }`}
+                            />
+                          )}
                           {s.accuracy != null && (
                             <div className="hist-kv">
                               <span>Độ chính xác</span>

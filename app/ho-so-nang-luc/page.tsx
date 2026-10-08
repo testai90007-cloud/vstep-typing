@@ -32,6 +32,7 @@ const LEVEL_STORAGE_KEY = 'vstep_target_level';
 
 interface WritingSession {
   accuracy: number;
+  ai_score?: number | null;
   created_at: string;
 }
 interface SpeakingSession {
@@ -296,7 +297,11 @@ export default function CompetencyPage() {
     listening.filter((s) => s.total > 0 && s.score != null).map((s) => (s.score / s.total) * 10)
   );
   const speakAvg = mean(speaking.filter((s) => s.overall != null).map((s) => Number(s.overall)));
-  const writeAvg = mean(writing.filter((s) => s.accuracy != null).map((s) => Number(s.accuracy) / 10));
+  const writeAvg = mean(
+    writing
+      .filter((s) => s.ai_score != null || s.accuracy != null)
+      .map((s) => (s.ai_score != null ? Number(s.ai_score) : Number(s.accuracy) / 10))
+  );
 
   const skills: SkillStat[] = [
     {

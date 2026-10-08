@@ -105,7 +105,12 @@ export function buildRows(data: {
       title: writingTitle(s.template_id),
       rawId: s.template_id || '',
       mode: MODE_LABEL[s.mode] || s.mode || '—',
-      scoreText: s.accuracy != null ? `${Math.round(s.accuracy)}%` : '–',
+      scoreText:
+        s.ai_score != null
+          ? `${Number(s.ai_score).toFixed(1)}/10`
+          : s.accuracy != null
+            ? `${Math.round(s.accuracy)}%`
+            : '–',
       createdAt: s.created_at,
       retakeHref: isTest ? `/writing/de-thi/${s.template_id}` : '/writing',
       retakeLabel: 'Luyện lại',
@@ -113,6 +118,16 @@ export function buildRows(data: {
         <>
           <KV k="Bài luyện" v={writingTitle(s.template_id)} />
           <KV k="Chế độ" v={MODE_LABEL[s.mode] || s.mode || '—'} />
+          {s.ai_score != null && (
+            <KV
+              k="Điểm AI"
+              v={`${Number(s.ai_score).toFixed(1)}/10${
+                s.ai_part1 != null && s.ai_part2 != null
+                  ? ` (Task 1: ${Number(s.ai_part1).toFixed(1)} · Task 2: ${Number(s.ai_part2).toFixed(1)})`
+                  : ''
+              }`}
+            />
+          )}
           {s.accuracy != null && <KV k="Độ chính xác" v={`${Math.round(s.accuracy)}%`} />}
           <KV k="Thời lượng" v={fmtDur(s.duration_sec)} />
         </>

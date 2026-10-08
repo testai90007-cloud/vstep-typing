@@ -9,6 +9,11 @@ interface SaveBody {
   mode?: string;
   accuracy?: number;
   durationSec?: number;
+  /** When present, update the AI score columns of this existing row instead of inserting. */
+  id?: number;
+  aiScore?: number;
+  aiPart1?: number;
+  aiPart2?: number;
 }
 
 export async function POST(req: NextRequest) {
@@ -40,10 +45,31 @@ export async function POST(req: NextRequest) {
       name: session.user.name,
       image: session.user.image,
     });
-    await sql`INSERT INTO writing_sessions (user_id, template_id, mode, accuracy, duration_sec)
+    // Self-healing columns for AI scores (0–10 scale, like speaking).
+    await sql`ALTER TABLE writing_sessions ADD COLUMN IF NOT EXISTS ai_score REAL`;
+    await sql`ALTER TABLE writing_sessions ADD COLUMN IF NOT EXISTS ai_part1 REAL`;
+    await sql`ALTER TABLE writing_sessions ADD COLUMN IF NOT EXISTS ai_part2 REAL`;
+
+    if (body.id) {
+      // Attach AI scores to the row created when the exam was submitted.
+      // Scoped to the user so one user can never touch another's rows.
+      const rows = await sql`UPDATE writing_sessions
+              SET ai_score = ${body.aiScore ?? null},
+                  ai_part1 = ${body.aiPart1 ?? null},
+                  ai_part2 = ${body.aiPart2 ?? null}
+              WHERE id = ${body.id} AND user_id = ${session.user.id}
+              RETURNING id`;
+      if (rows.length === 0) {
+        return NextResponse.json({ saved: false, reason: 'not-found' }, { status: 404 });
+      }
+      return NextResponse.json({ saved: true, id: rows[0].id });
+    }
+
+    const rows = await sql`INSERT INTO writing_sessions (user_id, template_id, mode, accuracy, duration_sec)
               VALUES (${session.user.id}, ${body.templateId || null}, ${body.mode || null},
-                      ${body.accuracy ?? null}, ${body.durationSec ?? null})`;
-    return NextResponse.json({ saved: true });
+                      ${body.accuracy ?? null}, ${body.durationSec ?? null})
+              RETURNING id`;
+    return NextResponse.json({ saved: true, id: rows[0]?.id ?? null });
   } catch (err) {
     console.error('writing/save failed:', err);
     return NextResponse.json({ saved: false, reason: 'db-error' }, { status: 500 });

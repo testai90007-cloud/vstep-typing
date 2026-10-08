@@ -7,7 +7,7 @@
 // counters, confirm-before-submit, auto-submit at 0:00 and a beforeunload
 // guard so work isn't lost.
 
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
 import { useParams } from 'next/navigation';
 import { useSession } from 'next-auth/react';
@@ -332,13 +332,17 @@ function ScoreDetail({ part, data, testTitle, onCopyPrompt, copied }: { part: 1 
  * AI scoring for the two writing tasks. Scores Task 1 first, then Task 2,
  * revealing each part's score card as soon as it arrives.
  */
-function AiScoring({ test, text1, text2, onRedo }: { test: WritingTest; text1: string; text2: string; onRedo: () => void }) {
+function AiScoring({ test, text1, text2, onRedo, getSavedId }: { test: WritingTest; text1: string; text2: string; onRedo: () => void; getSavedId: () => number | null }) {
   const [parts, setParts] = useState<[PartScore, PartScore]>([freshPartScore(), freshPartScore()]);
   const [detailTab, setDetailTab] = useState<1 | 2>(1);
   const [essaySubTab, setEssaySubTab] = useState<'essay' | 'prompt'>('essay');
   const [copied, setCopied] = useState(false);
   const startedRef = useRef(false);
   const copiedTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  /** Persist state of the AI score (attached to the submit row via its id). */
+  const [aiSaveState, setAiSaveState] = useState<'idle' | 'saving' | 'saved' | 'skipped' | 'error'>('idle');
+  const savedScoreKeyRef = useRef<string | null>(null);
+  const lastScoresRef = useRef<{ p1: number; p2: number; total: number } | null>(null);
 
   const setPart = (idx: 0 | 1, patch: Partial<PartScore>) =>
     setParts((prev) => {
@@ -407,6 +411,8 @@ function AiScoring({ test, text1, text2, onRedo }: { test: WritingTest; text1: s
 
   const startAll = () => {
     setParts([freshPartScore(), freshPartScore()]);
+    setAiSaveState('idle');
+    savedScoreKeyRef.current = null;
     (async () => {
       await scoreOne(1, text1);
       await scoreOne(2, text2);
@@ -434,6 +440,60 @@ function AiScoring({ test, text1, text2, onRedo }: { test: WritingTest; text1: s
   const s2 = parts[1].status === 'done' ? parts[1].data : null;
   const bothDone = !!s1 && !!s2;
   const total = bothDone ? Math.round(((s1!.overall_score + s2!.overall_score * 2) / 3) * 10) / 10 : 0;
+
+  /**
+   * Attach the AI scores to the row created at submit time. Waits briefly
+   * for the parent's save to return its row id; reports honestly and offers
+   * a retry instead of claiming success on failure.
+   */
+  const saveAiScore = useCallback(async (p1: number, p2: number, totalScore: number) => {
+    lastScoresRef.current = { p1, p2, total: totalScore };
+    let id: number | null = null;
+    for (let i = 0; i < 15; i++) {
+      id = getSavedId();
+      if (id) break;
+      await new Promise((r) => setTimeout(r, 1000));
+    }
+    if (!id) {
+      // Not logged in, or the submit-time save failed (parent already toasted).
+      setAiSaveState('skipped');
+      return;
+    }
+    setAiSaveState('saving');
+    try {
+      const res = await fetch('/api/writing/save', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id, aiScore: totalScore, aiPart1: p1, aiPart2: p2 }),
+      });
+      const data = await res.json().catch(() => null);
+      if (res.status === 401) {
+        setAiSaveState('skipped');
+        return;
+      }
+      if (res.ok && data?.saved !== false) {
+        setAiSaveState('saved');
+        return;
+      }
+      setAiSaveState('error');
+    } catch {
+      setAiSaveState('error');
+    }
+  }, [getSavedId]);
+
+  // Save once per distinct score set (re-scoring with new scores updates).
+  useEffect(() => {
+    if (!bothDone || !s1 || !s2) return;
+    const key = `${s1.overall_score}|${s2.overall_score}`;
+    if (savedScoreKeyRef.current === key) return;
+    savedScoreKeyRef.current = key;
+    saveAiScore(s1.overall_score, s2.overall_score, total);
+  }, [bothDone, s1, s2, total, saveAiScore]);
+
+  const retryAiSave = () => {
+    const last = lastScoresRef.current;
+    if (last) saveAiScore(last.p1, last.p2, last.total);
+  };
   const activeState = parts[detailTab - 1];
   const activeEssay = detailTab === 1 ? text1 : text2;
   const activePart = detailTab === 1 ? test.part1 : test.part2;
@@ -458,6 +518,32 @@ function AiScoring({ test, text1, text2, onRedo }: { test: WritingTest; text1: s
           <div className="total-label">ĐIỂM WRITING TỔNG</div>
           <div className="total-num" style={{ color: scoreColor(total) }}>{fmtScore(total)}</div>
           <div className="total-formula">Công thức: (Part 1 + Part 2 × 2) / 3</div>
+          <p style={{ fontSize: '0.85rem', color: 'var(--muted)', margin: '10px 0 0' }}>
+            {aiSaveState === 'saved' && 'Đã lưu điểm AI vào tiến bộ của bạn.'}
+            {aiSaveState === 'saving' && 'Đang lưu điểm…'}
+            {aiSaveState === 'skipped' && 'Đăng nhập bằng Google để lưu điểm AI.'}
+            {aiSaveState === 'error' && (
+              <>
+                Lưu điểm thất bại.{' '}
+                <button
+                  type="button"
+                  onClick={retryAiSave}
+                  style={{
+                    background: 'none',
+                    border: 'none',
+                    padding: 0,
+                    font: 'inherit',
+                    fontWeight: 700,
+                    color: 'var(--accent-strong)',
+                    cursor: 'pointer',
+                    textDecoration: 'underline',
+                  }}
+                >
+                  Thử lưu lại
+                </button>
+              </>
+            )}
+          </p>
         </div>
       )}
 
@@ -698,6 +784,8 @@ export default function WritingTestPage() {
   const startStamp = useRef<number | null>(null);
   const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const finishedRef = useRef(false);
+  /** Row id returned by /api/writing/save — used to attach AI scores later. */
+  const savedIdRef = useRef<number | null>(null);
 
   const totalSec = (test?.timeMin ?? 60) * 60;
   const words1 = wordCount(text1);
@@ -742,6 +830,7 @@ export default function WritingTestPage() {
 
   async function saveResult(durationSec: number) {
     if (!test) return;
+    savedIdRef.current = null;
     try {
       const res = await fetch('/api/writing/save', {
         method: 'POST',
@@ -761,10 +850,16 @@ export default function WritingTestPage() {
       if (data && data.saved === false && data.reason === 'no-database') {
         showToast('Chưa kết nối database — bài làm vẫn được chấm tại chỗ.');
       }
+      if (data && typeof data.id === 'number') {
+        savedIdRef.current = data.id;
+      }
     } catch {
       /* offline / db down — the test itself still works */
     }
   }
+
+  /** Stable getter for the submit row id, so AiScoring can attach AI scores to it. */
+  const getSavedId = useCallback(() => savedIdRef.current, []);
 
   function finish(auto: boolean) {
     if (finishedRef.current || !test) return;
@@ -803,6 +898,7 @@ export default function WritingTestPage() {
   }
 
   function retry() {
+    savedIdRef.current = null;
     setStage('pick');
     setResult(null);
     window.scrollTo({ top: 0 });
@@ -1010,7 +1106,7 @@ export default function WritingTestPage() {
               chi tiết từng Task.
             </p>
           </div>
-          <AiScoring test={test} text1={text1} text2={text2} onRedo={retry} />
+          <AiScoring test={test} text1={text1} text2={text2} onRedo={retry} getSavedId={getSavedId} />
         </>
       )}
 
