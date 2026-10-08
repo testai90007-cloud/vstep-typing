@@ -1,6 +1,7 @@
 'use client';
 
-// Home: slim hero + FlowingSkills centerpiece + utilities.
+// Home: slim hero + FlowingMenu (4 skills, click goes straight to the skill
+// page) + utilities.
 
 import Link from 'next/link';
 import {
@@ -9,7 +10,14 @@ import {
   Cog6ToothIcon,
   ArrowRightIcon,
 } from '@heroicons/react/24/outline';
-import FlowingSkills from '@/components/FlowingSkills';
+import FlowingMenu, { type FlowingMenuItem } from '@/components/FlowingMenu';
+
+const MENU_ITEMS: FlowingMenuItem[] = [
+  { link: '/writing', text: 'Luyện Viết', image: '/images/writing.jpg' },
+  { link: '/speaking', text: 'Luyện Nói', image: '/images/speaking.jpg' },
+  { link: '/listening', text: 'Luyện Nghe', image: '/images/listening.jpg' },
+  { link: '/reading', text: 'Luyện Đọc', image: '/images/reading.jpg' },
+];
 
 const TOOLS = [
   {
@@ -35,7 +43,7 @@ const TOOLS = [
 export default function HomePage() {
   return (
     <main className="page">
-      <section className="hero hero-clean" style={{ paddingBottom: 8 }}>
+      <section className="hero hero-clean" style={{ paddingBottom: 4 }}>
         <span className="pill-badge">
           <span className="dot grad-dot" aria-hidden="true" />
           858 đề thi thử · 4 kỹ năng VSTEP
@@ -45,14 +53,14 @@ export default function HomePage() {
           <br />
           <span className="grad-text">gọn và chính xác.</span>
         </h1>
-        <p className="lead">
-          Chọn một kỹ năng bên dưới để xem cấu trúc đề và bắt đầu luyện.
-        </p>
+        <p className="lead">Bấm vào một kỹ năng để vào luyện ngay.</p>
       </section>
 
-      <FlowingSkills />
+      <div style={{ height: 'min(58vh, 540px)', minHeight: 380, position: 'relative', margin: '18px 0 8px' }}>
+        <FlowingMenu items={MENU_ITEMS} speed={18} />
+      </div>
 
-      <h2 className="section-title" style={{ marginTop: 44 }}>
+      <h2 className="section-title" style={{ marginTop: 40 }}>
         Tiện ích
       </h2>
       <div className="feature-grid">
