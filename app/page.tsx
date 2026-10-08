@@ -3,9 +3,7 @@
 // Home: hero with DarkVeil animated background + FlowingMenu (4 skills,
 // click goes straight to the skill page) + utilities.
 
-import { useEffect, useState } from 'react';
-import Link from 'next/link';
-import {
+import Link from 'next/link';import {
   ChartBarIcon,
   IdentificationIcon,
   Cog6ToothIcon,
@@ -13,6 +11,7 @@ import {
 } from '@heroicons/react/24/outline';
 import FlowingMenu, { type FlowingMenuItem } from '@/components/FlowingMenu';
 import DarkVeil from '@/components/DarkVeil';
+import { useIsDark } from '@/components/useIsDark';
 
 const MENU_ITEMS: FlowingMenuItem[] = [
   { link: '/writing', text: 'Luyện Viết', image: '/images/writing.jpg' },
@@ -41,21 +40,6 @@ const TOOLS = [
     Icon: Cog6ToothIcon,
   },
 ];
-
-// Tracks the site's own theme (html[data-theme]) so the veil can switch
-// between its light and dark renderings.
-function useIsDark() {
-  const [isDark, setIsDark] = useState(false);
-  useEffect(() => {
-    const el = document.documentElement;
-    const update = () => setIsDark(el.getAttribute('data-theme') === 'dark');
-    update();
-    const obs = new MutationObserver(update);
-    obs.observe(el, { attributes: true, attributeFilter: ['data-theme'] });
-    return () => obs.disconnect();
-  }, []);
-  return isDark;
-}
 
 export default function HomePage() {
   const isDark = useIsDark();

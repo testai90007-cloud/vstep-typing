@@ -20,6 +20,8 @@ import {
 } from '@heroicons/react/24/outline';
 import { getAiSettings } from '@/lib/aiKey';
 import { SPEAKING_CRITERIA } from '@/lib/speaking';
+import VoicePill from '@/components/VoicePill';
+import { useIsDark } from '@/components/useIsDark';
 
 function fmt(sec: number): string {
   return `${Math.floor(sec / 60)}:${String(sec % 60).padStart(2, '0')}`;
@@ -77,6 +79,11 @@ export function RecorderPanel({
   const chunksRef = useRef<Blob[]>([]);
   const streamRef = useRef<MediaStream | null>(null);
   const stoppingRef = useRef(false);
+  /** slide-to-cancel on the voice pill: discard the take instead of uploading */
+  const cancelledRef = useRef(false);
+  /** remount the voice pill to force it back to idle (e.g. our mic request failed) */
+  const [pillKey, setPillKey] = useState(0);
+  const isDark = useIsDark();
   /** examMode: once an error happens, stop auto-advancing (avoid record loops) */
   const examBlockedRef = useRef(false);
 
@@ -133,7 +140,7 @@ export function RecorderPanel({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [examMode, phase]);
 
-  async function startRecording() {
+  async function startRecording(): Promise<boolean> {
     setError('');
     stoppingRef.current = false;
     try {
@@ -156,12 +163,14 @@ export function RecorderPanel({
       rec.start(500);
       setTalkLeft(talkSec);
       setPhase('recording');
+      return true;
     } catch {
       setError('Không truy cập được micro. Hãy cho phép trình duyệt dùng micro rồi thử lại.');
       if (examMode) {
         examBlockedRef.current = true;
         onPartFinished?.(null);
       }
+      return false;
     }
   }
 
@@ -187,10 +196,67 @@ export function RecorderPanel({
     }
   }
 
+  /** Discard the current take (voice pill slide-to-cancel). */
+  function cancelRecording() {
+    cancelledRef.current = true;
+    streamRef.current?.getTracks().forEach((t) => t.stop());
+    streamRef.current = null;
+    const rec = mediaRef.current;
+    if (rec && rec.state !== 'inactive') {
+      rec.stop(); // -> onstop -> handleStopped sees cancelledRef
+    } else {
+      cancelledRef.current = false;
+      stoppingRef.current = false;
+      chunksRef.current = [];
+      setPhase('ready');
+    }
+  }
+
+  /** Voice pill pressed (practice mode): start our MediaRecorder take. */
+  function handlePillStart() {
+    if (phase === 'recording' || phase === 'uploading') return;
+    void startRecording().then((ok) => {
+      if (!ok) setPillKey((k) => k + 1); // our mic failed — reset pill to idle
+    });
+  }
+
+  /** Voice pill released (practice mode). */
+  function handlePillStop(reason: string) {
+    if (reason === 'cancel') {
+      cancelRecording();
+      return;
+    }
+    if (reason === 'unmount' || reason === 'disabled') return;
+    if (reason === 'mic-denied') {
+      // our own getUserMedia in startRecording already reported the error;
+      // make sure the pill doesn't stay open if we never started.
+      if (phase !== 'recording') {
+        setError('Không truy cập được micro. Hãy cho phép trình duyệt dùng micro rồi thử lại.');
+        setPillKey((k) => k + 1);
+      }
+      return;
+    }
+    // tap / release / key / escape / blur -> stop and score
+    if (phase !== 'recording') return;
+    stopRecording();
+  }
+
+  const pillColors = isDark
+    ? { background: '#f4f0e8', accentColor: '#1c1917', iconColor: 'rgba(28,25,23,0.55)' }
+    : { background: '#1c1917', accentColor: '#faf9f7', iconColor: 'rgba(250,249,247,0.6)' };
+
   async function handleStopped() {
     streamRef.current?.getTracks().forEach((t) => t.stop());
     streamRef.current = null;
     mediaRef.current = null;
+    if (cancelledRef.current) {
+      // user slid the voice pill to cancel — discard the take silently
+      cancelledRef.current = false;
+      stoppingRef.current = false;
+      chunksRef.current = [];
+      setPhase('ready');
+      return;
+    }
     const blob = new Blob(chunksRef.current, { type: 'audio/webm' });
     if (blob.size === 0) {
       setError('Bản ghi âm trống. Hãy thử ghi âm lại.');
@@ -288,25 +354,55 @@ export function RecorderPanel({
           </p>
         </div>
       )}
-      {phase === 'ready' &&
-        (examMode ? (
-          <p style={{ color: 'var(--muted)', display: 'flex', alignItems: 'center', gap: 9 }}>
-            <span className="rec-dot" />
-            Hết giờ chuẩn bị — bắt đầu ghi âm…
-          </p>
-        ) : (
-          <div className="btn-row">
-            <button className="btn primary" onClick={startRecording}>
-              <span className="rec-dot" />
-              Bắt đầu nói (tối đa {fmt(talkSec)})
-            </button>
-            <button className="btn" onClick={startPrep}>
-              <ArrowPathIcon width={16} height={16} />
-              Chuẩn bị lại
-            </button>
+      {phase === 'ready' && examMode && (
+        <p style={{ color: 'var(--muted)', display: 'flex', alignItems: 'center', gap: 9 }}>
+          <span className="rec-dot" />
+          Hết giờ chuẩn bị — bắt đầu ghi âm…
+        </p>
+      )}
+      {!examMode && (phase === 'ready' || phase === 'recording') && (
+        <div className="card-soft" style={{ textAlign: 'center' }}>
+          {phase === 'recording' ? (
+            <div style={{ fontSize: '0.85rem', color: 'var(--muted)', display: 'inline-flex', alignItems: 'center', gap: 7 }}>
+              <span className="rec-dot" /> Đang ghi âm — còn {fmt(talkLeft)}
+            </div>
+          ) : (
+            <div style={{ fontSize: '0.85rem', color: 'var(--muted)' }}>
+              Sẵn sàng — nhấn nút micro để bắt đầu nói (tối đa {fmt(talkSec)})
+            </div>
+          )}
+          <div style={{ display: 'flex', justifyContent: 'center', margin: '14px 0 4px' }}>
+            <VoicePill
+              key={pillKey}
+              size={46}
+              background={pillColors.background}
+              accentColor={pillColors.accentColor}
+              iconColor={pillColors.iconColor}
+              reactive="mic"
+              showTime
+              waveform
+              slideToCancel
+              ariaLabel="Ghi âm bài nói"
+              onStart={handlePillStart}
+              onStop={({ reason }) => handlePillStop(reason)}
+            />
           </div>
-        ))}
-      {phase === 'recording' && (
+          <p style={{ fontSize: '0.8rem', color: 'var(--faint)', margin: '8px 0 0' }}>
+            {phase === 'recording'
+              ? 'Nhấn lần nữa để dừng & chấm điểm · vuốt sang trái để hủy bản ghi'
+              : 'Chạm để ghi âm · nhấn giữ rồi thả ra cũng dừng được'}
+          </p>
+          {phase === 'ready' && (
+            <div className="btn-row" style={{ justifyContent: 'center', marginTop: 12 }}>
+              <button className="btn" onClick={startPrep}>
+                <ArrowPathIcon width={16} height={16} />
+                Chuẩn bị lại
+              </button>
+            </div>
+          )}
+        </div>
+      )}
+      {phase === 'recording' && examMode && (
         <div className="card-soft" style={{ textAlign: 'center' }}>
           <div style={{ fontSize: '0.85rem', color: 'var(--muted)', display: 'inline-flex', alignItems: 'center' }}>
             <span className="rec-dot" /> Đang ghi âm
