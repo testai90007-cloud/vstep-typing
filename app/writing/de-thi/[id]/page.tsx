@@ -328,7 +328,7 @@ function ScoreDetail({ part, data, testTitle, onCopyPrompt, copied }: { part: 1 
 
 
 /**
- * AI scoring for the two writing tasks. Scores Task 1 first, then Task 2,
+ * AI scoring for the two writing tasks. Both parts are scored in parallel,
  * revealing each part's score card as soon as it arrives.
  */
 function AiScoring({ test, text1, text2, onRedo, getSavedId }: { test: WritingTest; text1: string; text2: string; onRedo: () => void; getSavedId: () => number | null }) {
@@ -412,10 +412,8 @@ function AiScoring({ test, text1, text2, onRedo, getSavedId }: { test: WritingTe
     setParts([freshPartScore(), freshPartScore()]);
     setAiSaveState('idle');
     savedScoreKeyRef.current = null;
-    (async () => {
-      await scoreOne(1, text1);
-      await scoreOne(2, text2);
-    })();
+    // score both parts in parallel — each reveals its card as soon as it arrives
+    void Promise.all([scoreOne(1, text1), scoreOne(2, text2)]);
   };
 
   useEffect(() => {

@@ -54,43 +54,30 @@ def upload(item, retries=4):
 
 open(LOG, "w").write("")
 files = walk()
-log(f"{len(files)} files, uploading with 4 workers...")
+log(f"{len(files)} files, checking against last deploy manifest...")
 
 # Smart upload: Vercel's blob store is content-addressed by sha1.
-# Files unchanged since the last successful deploy are already there —
-# re-uploading them only burns the free-tier upload quota (429s).
-# Seed: every tracked file unmodified vs HEAD was in the last good deploy.
+# Re-uploading unchanged files burns the free-tier upload quota (429s),
+# so we keep a manifest of {path: sha} from the last successful deploy
+# and only upload files whose content actually changed.
 import hashlib as _hl
 def _sha(p):
     return _hl.sha1(open(p, "rb").read()).hexdigest()
-# porcelain lines look like " M path" / "M  path" / "?? path" — normalize to paths
-changed_paths = set()
-for line in subprocess.run(["git", "status", "--porcelain"], capture_output=True, text=True, cwd=SRC).stdout.splitlines():
-    if len(line) > 3:
-        changed_paths.add(line[3:].strip().strip('"'))
-CACHE = os.path.expanduser("~/.cache/vstep-vercel-uploads.json")
+MANIFEST = os.path.expanduser("~/.cache/vstep-deploy-manifest.json")
 try:
-    cache = set(json.load(open(CACHE)))
+    manifest = json.load(open(MANIFEST))
 except Exception:
-    cache = set()
-refs, fails, reused, to_upload = [], [], 0, []
-def _is_changed(rel):
-    if rel in changed_paths:
-        return True
-    # untracked dirs show as "path/" in porcelain — match files inside them
-    return any(rel.startswith(d) for d in changed_paths if d.endswith("/"))
-
+    manifest = {}
+refs, fails, reused, to_upload, new_manifest = [], [], 0, [], {}
 for p, rel in files:
-    if _is_changed(rel):
-        to_upload.append((p, rel))
-    else:
-        sha = _sha(p)
+    sha = _sha(p)
+    new_manifest[rel] = sha
+    if manifest.get(rel) == sha:
         refs.append({"file": rel, "sha": sha, "size": os.path.getsize(p)})
-        cache.add(sha)
         reused += 1
-log(f"reusing {reused} unchanged files from cache, uploading {len(to_upload)} changed files")
-os.makedirs(os.path.dirname(CACHE), exist_ok=True)
-json.dump(sorted(cache), open(CACHE, "w"))
+    else:
+        to_upload.append((p, rel))
+log(f"reusing {reused} unchanged files, uploading {len(to_upload)} changed files")
 fails = []
 done = [0]
 def one(item):
@@ -98,7 +85,6 @@ def one(item):
     done[0] += 1
     if st == "ok":
         refs.append({"file": rel, "sha": sha, "size": size})
-        cache.add(sha)
     elif st == "fail":
         fails.append((rel, sha))
     if done[0] % 40 == 0:
@@ -106,7 +92,6 @@ def one(item):
 
 with ThreadPoolExecutor(max_workers=4) as ex:
     list(ex.map(one, to_upload))
-json.dump(sorted(cache), open(CACHE, "w"))
 log(f"done: {len(refs)} ok, {len(fails)} failed")
 for rel, err in fails[:10]:
     log(f"FAIL {rel}: {err}")
@@ -121,3 +106,8 @@ r = subprocess.run(["vercel", "call-tool", "--name", "create_deployment",
 log("create_deployment exit=" + str(r.returncode))
 log(r.stdout[:2000])
 log(r.stderr[:500])
+# record the manifest only when the deployment was actually created
+if r.returncode == 0 and '"error"' not in r.stdout and "missing_files" not in r.stdout:
+    os.makedirs(os.path.dirname(MANIFEST), exist_ok=True)
+    json.dump(new_manifest, open(MANIFEST, "w"))
+    log(f"manifest saved: {len(new_manifest)} files")
