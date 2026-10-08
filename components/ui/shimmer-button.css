@@ -18,7 +18,7 @@
   font-weight: 600;
   line-height: 1.2;
   color: var(--bg);
-  background: var(--ink);
+  background: var(--shimmer-bg, var(--ink));
   transform: translateZ(0);
   transition: transform 0.3s ease-in-out;
   font-family: inherit;
@@ -101,7 +101,7 @@
   inset: var(--cut, 0.05em);
   z-index: -20;
   border-radius: var(--radius, 100px);
-  background: var(--ink);
+  background: var(--shimmer-bg, var(--ink));
 }
 
 @keyframes shimmer-slide {

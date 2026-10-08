@@ -45,7 +45,7 @@ export const ShimmerButton = React.forwardRef<HTMLButtonElement, ShimmerButtonPr
             '--radius': borderRadius,
             '--speed': shimmerDuration,
             '--cut': shimmerSize,
-            '--bg': background,
+            '--shimmer-bg': background,
           } as CSSProperties
         }
         className={cn('shimmer-btn', className)}
