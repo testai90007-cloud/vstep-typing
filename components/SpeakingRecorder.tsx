@@ -20,6 +20,7 @@ import {
 import { getAiSettings } from '@/lib/aiKey';
 import { SPEAKING_CRITERIA } from '@/lib/speaking';
 import VoicePill from '@/components/VoicePill';
+import CountUp from '@/components/CountUp';
 import { useIsDark } from '@/components/useIsDark';
 
 function fmt(sec: number): string {
@@ -488,13 +489,13 @@ function ScoreCard({ result }: { result: ScoreResult }) {
         </span>
         <div>
           <strong style={{ fontSize: '2rem', fontWeight: 800 }}>
-            {result.overall.toFixed(1)}
+            <CountUp to={Math.round(result.overall * 10) / 10} locales="vi-VN" duration={1.4} />
           </strong>
           <span style={{ color: 'var(--muted)', fontSize: '0.88rem' }}>/ 10 · điểm tổng</span>
         </div>
       </div>
       <div style={{ display: 'grid', gap: 10, marginTop: 14 }}>
-        {SPEAKING_CRITERIA.map((c) => {
+        {SPEAKING_CRITERIA.map((c, i) => {
           const v = result.scores?.[c.key] ?? 0;
           return (
             <div key={c.key}>
@@ -503,7 +504,7 @@ function ScoreCard({ result }: { result: ScoreResult }) {
                   <strong>{c.label}</strong>{' '}
                   <span style={{ color: 'var(--muted)' }}>· {c.vi}</span>
                 </span>
-                <strong>{v.toFixed(1)}</strong>
+                <strong><CountUp to={v} locales="vi-VN" duration={1} delay={i * 0.08} /></strong>
               </div>
               <div className="score-bar" style={{ marginTop: 5 }}>
                 <div style={{ width: `${v * 10}%` }} />

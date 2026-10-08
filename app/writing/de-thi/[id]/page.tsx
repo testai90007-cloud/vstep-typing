@@ -28,6 +28,7 @@ import {
   buildTask2ScorePrompt,
   type WritingScore,
 } from '@/lib/writing-score-prompts';
+import CountUp from '@/components/CountUp';
 
 const MIN_WORDS_1 = 120;
 const MIN_WORDS_2 = 250;
@@ -186,7 +187,7 @@ function ScoreCard({
         {state.status === 'done' && state.data && (
           <>
             <div className="score-num" style={{ color: scoreColor(state.data.overall_score) }}>
-              {fmtScore(state.data.overall_score)}<small>/10</small>
+              <CountUp to={Math.round(state.data.overall_score * 10) / 10} locales="vi-VN" duration={1.4} /><small>/10</small>
             </div>
             {state.data.overall_score === 0 ? (
               <span className="chip danger">Lạc đề — 0 điểm</span>
@@ -237,7 +238,7 @@ function ScoreDetail({ part, data, testTitle, onCopyPrompt, copied }: { part: 1 
           </div>
         </div>
         <div className="detail-overall" style={{ color: scoreColor(data.overall_score) }}>
-          {fmtScore(data.overall_score)}<small>/10</small>
+          <CountUp to={Math.round(data.overall_score * 10) / 10} locales="vi-VN" duration={1.4} /><small>/10</small>
         </div>
       </header>
       {data.level_feedback && (
@@ -251,7 +252,7 @@ function ScoreDetail({ part, data, testTitle, onCopyPrompt, copied }: { part: 1 
               <span className="crit-num">{i + 1}</span>
               <strong className="crit-name">{c.name_vi}</strong>
               <span className="crit-score" style={{ color: scoreColor(c.score) }}>
-                {String(c.score).replace('.', ',')}
+                <CountUp to={c.score} locales="vi-VN" duration={1} delay={i * 0.08} />
               </span>
             </div>
             <div className="criterion-bar">
@@ -516,7 +517,9 @@ function AiScoring({ test, text1, text2, onRedo, getSavedId }: { test: WritingTe
       {bothDone && (
         <div className="card-soft total-card">
           <div className="total-label">ĐIỂM WRITING TỔNG</div>
-          <div className="total-num" style={{ color: scoreColor(total) }}>{fmtScore(total)}</div>
+          <div className="total-num" style={{ color: scoreColor(total) }}>
+            <CountUp to={total} locales="vi-VN" duration={1.6} />
+          </div>
           <div className="total-formula">Công thức: (Part 1 + Part 2 × 2) / 3</div>
           <p style={{ fontSize: '0.85rem', color: 'var(--muted)', margin: '10px 0 0' }}>
             {aiSaveState === 'saved' && 'Đã lưu điểm AI vào tiến bộ của bạn.'}

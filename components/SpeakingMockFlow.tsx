@@ -19,6 +19,7 @@ import { AuthedRecorder, type ScoreResult } from './SpeakingRecorder';
 import SpeakingPartBlock from './SpeakingPartBlock';
 import { SPEAKING_TIMING } from '@/lib/speaking';
 import type { SpeakingTest } from '@/lib/speaking-tests';
+import CountUp from '@/components/CountUp';
 
 const PART_NAMES = {
   1: 'Social Interaction',
@@ -184,7 +185,11 @@ export default function SpeakingMockFlow({ test }: { test: SpeakingTest }) {
           Kết quả thi thử · {test.title}
         </p>
         <p style={{ margin: 0, fontSize: '2.6rem', fontWeight: 800 }}>
-          {overall != null ? overall.toFixed(1) : '—'}
+          {overall != null ? (
+            <CountUp to={Math.round(overall * 10) / 10} locales="vi-VN" duration={1.6} />
+          ) : (
+            '—'
+          )}
           <span style={{ color: 'var(--muted)', fontSize: '1.4rem' }}>/10</span>
         </p>
         <p style={{ margin: '6px 0 0', color: 'var(--muted)', fontSize: '0.88rem' }}>
@@ -199,7 +204,13 @@ export default function SpeakingMockFlow({ test }: { test: SpeakingTest }) {
                   <span>
                     Part {n} · {PART_NAMES[n]}
                   </span>
-                  <strong>{s ? s.overall.toFixed(1) : '—'}</strong>
+                  <strong>
+                    {s ? (
+                      <CountUp to={Math.round(s.overall * 10) / 10} locales="vi-VN" duration={1.2} delay={(n - 1) * 0.12} />
+                    ) : (
+                      '—'
+                    )}
+                  </strong>
                 </div>
                 <div className="score-bar">
                   <div style={{ width: s ? `${s.overall * 10}%` : '0%' }} />
