@@ -30,6 +30,8 @@ interface ScoreResult {
   scores: Record<string, number>;
   overall: number;
   feedback_vi: string;
+  /** false when scoring succeeded but the DB persist failed */
+  persisted?: boolean;
 }
 export type { ScoreResult };
 
@@ -341,6 +343,11 @@ export function RecorderPanel({
         ) : (
           <>
             <ScoreCard result={result} />
+            {result.persisted === false && (
+              <p style={{ fontSize: '0.85rem', color: 'var(--wrong)', margin: '10px 0 0' }}>
+                Đã chấm điểm nhưng chưa lưu được vào tiến độ (lỗi kết nối). Bài ghi âm này sẽ không hiện ở trang Tiến độ.
+              </p>
+            )}
             <div className="btn-row" style={{ marginTop: 14 }}>
               <button className="btn" onClick={startPrep}>
                 <ArrowPathIcon width={16} height={16} />

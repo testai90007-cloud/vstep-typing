@@ -326,6 +326,7 @@ export async function POST(req: NextRequest) {
 
     // 3. Persist (best effort — scoring result is returned even if DB is down)
     const sql = getSql();
+    let persisted = false;
     if (sql) {
       try {
         await ensureUser(sql, {
@@ -338,12 +339,13 @@ export async function POST(req: NextRequest) {
         await sql`INSERT INTO speaking_sessions (user_id, part, prompt, transcript, scores, overall, feedback, mode)
                   VALUES (${session.user.id}, ${part}, ${prompt}, ${transcript},
                           ${JSON.stringify(scores)}::jsonb, ${overall}, ${feedback}, ${sessionMode})`;
+        persisted = true;
       } catch (dbErr) {
         console.error('speaking score: db save failed:', dbErr);
       }
     }
 
-    return NextResponse.json({ transcript, scores, overall, feedback_vi: feedback });
+    return NextResponse.json({ transcript, scores, overall, feedback_vi: feedback, persisted });
   } catch (err) {
     // Never include the API key in logs or error responses.
     const msg = err instanceof Error ? err.message : 'unknown';

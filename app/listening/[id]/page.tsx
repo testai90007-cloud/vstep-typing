@@ -59,7 +59,7 @@ export default function ListeningPlayerPage() {
   const [mode, setMode] = useState<'pick' | 'practice' | 'mock'>('pick');
   /** practice mode: recordings whose answers were checked immediately */
   const [checked, setChecked] = useState<Record<string, boolean>>({});
-  const [saveState, setSaveState] = useState<'idle' | 'saving' | 'saved' | 'skipped'>('idle');
+  const [saveState, setSaveState] = useState<'idle' | 'saving' | 'saved' | 'skipped' | 'error'>('idle');
   const submittedRef = useRef(false);
   const startRef = useRef<number>(0);
 
@@ -100,9 +100,11 @@ export default function ListeningPlayerPage() {
     doSubmit();
   };
 
-  // Save result once after submit (logged-in users only).
-  useEffect(() => {
-    if (!submitted || !test || saveState !== 'idle') return;
+  // Persist the result. The server response is checked honestly: only an
+  // actual OK + saved:true counts as "saved". A 401 means the login didn't
+  // reach the server (skipped); anything else is a real failure with retry.
+  const doSave = useCallback(async () => {
+    if (!test) return;
     if (!session?.user) {
       setSaveState('skipped');
       return;
@@ -110,21 +112,39 @@ export default function ListeningPlayerPage() {
     setSaveState('saving');
     const score = questions.filter((q) => answers[q.num] === q.answer).length;
     const durationSec = Math.round((Date.now() - startRef.current) / 1000);
-    fetch('/api/listening/save', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        testId: test.id,
-        score,
-        total,
-        durationSec,
-        answers,
-        mode,
-      }),
-    })
-      .then(() => setSaveState('saved'))
-      .catch(() => setSaveState('skipped'));
-  }, [submitted, test, session, saveState, questions, answers, total, mode]);
+    try {
+      const res = await fetch('/api/listening/save', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          testId: test.id,
+          score,
+          total,
+          durationSec,
+          answers,
+          mode,
+        }),
+      });
+      const data = await res.json().catch(() => null);
+      if (res.status === 401) {
+        setSaveState('skipped');
+        return;
+      }
+      if (res.ok && data?.saved !== false) {
+        setSaveState('saved');
+        return;
+      }
+      setSaveState('error');
+    } catch {
+      setSaveState('error');
+    }
+  }, [test, session, questions, answers, total, mode]);
+
+  // Save result once after submit (logged-in users only).
+  useEffect(() => {
+    if (!submitted || !test || saveState !== 'idle') return;
+    doSave();
+  }, [submitted, test, saveState, doSave]);
 
   const scrollToQ = (num: number) => {
     document.getElementById(`q-${num}`)?.scrollIntoView({ behavior: 'smooth', block: 'center' });
@@ -203,6 +223,27 @@ export default function ListeningPlayerPage() {
             {saveState === 'saved' && 'Đã lưu vào tiến bộ của bạn.'}
             {saveState === 'saving' && 'Đang lưu…'}
             {saveState === 'skipped' && 'Đăng nhập bằng Google để lưu kết quả.'}
+            {saveState === 'error' && (
+              <>
+                Lưu thất bại.{' '}
+                <button
+                  type="button"
+                  onClick={doSave}
+                  style={{
+                    background: 'none',
+                    border: 'none',
+                    padding: 0,
+                    font: 'inherit',
+                    fontWeight: 700,
+                    color: 'var(--accent-strong)',
+                    cursor: 'pointer',
+                    textDecoration: 'underline',
+                  }}
+                >
+                  Thử lưu lại
+                </button>
+              </>
+            )}
           </p>
           <div className="btn-row" style={{ justifyContent: 'center', marginTop: 16 }}>
             <Link href="/listening" className="btn" style={{ textDecoration: 'none' }}>
