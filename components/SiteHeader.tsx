@@ -7,7 +7,7 @@ import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { signIn, signOut, useSession } from 'next-auth/react';
 import ThemeToggle from '@/components/ThemeToggle';
-import { HoverBorderGradient } from '@/components/ui/hover-border-gradient';
+import { ShimmerButton } from '@/components/ui/shimmer-button';
 import {
   PencilSquareIcon,
   MicrophoneIcon,
@@ -120,13 +120,14 @@ export default function SiteHeader() {
               </button>
             </>
           ) : (
-            <HoverBorderGradient
+            <ShimmerButton
               onClick={() => signIn('google')}
               aria-label="Đăng nhập bằng Google"
+              background="var(--ink)"
             >
               <GoogleIcon />
               <span>Đăng nhập</span>
-            </HoverBorderGradient>
+            </ShimmerButton>
           )}
         </div>
       </div>

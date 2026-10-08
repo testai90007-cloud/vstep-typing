@@ -1,0 +1,135 @@
+/* ShimmerButton — vanilla CSS (no Tailwind in this project). */
+
+.shimmer-btn {
+  --spread: 90deg;
+  position: relative;
+  z-index: 0;
+  display: inline-flex;
+  cursor: pointer;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  overflow: hidden;
+  border-radius: var(--radius, 100px);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  padding: 8px 18px;
+  white-space: nowrap;
+  font-size: 0.85rem;
+  font-weight: 600;
+  line-height: 1.2;
+  color: var(--bg);
+  background: var(--ink);
+  transform: translateZ(0);
+  transition: transform 0.3s ease-in-out;
+  font-family: inherit;
+}
+
+.shimmer-btn:active {
+  transform: translateY(1px);
+}
+
+.shimmer-btn:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 3px;
+}
+
+.shimmer-content {
+  position: relative;
+  z-index: 1;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+/* spark container */
+.shimmer-spark-container {
+  position: absolute;
+  inset: 0;
+  z-index: -30;
+  overflow: visible;
+  filter: blur(2px);
+  container-type: size;
+}
+
+/* spark slider — travels along the perimeter */
+.shimmer-spark {
+  position: absolute;
+  inset: 0;
+  aspect-ratio: 1;
+  height: 100cqh;
+  animation: shimmer-slide var(--speed, 3s) ease-in-out infinite alternate;
+}
+
+/* spinning conic beam */
+.shimmer-spin {
+  position: absolute;
+  inset: -100%;
+  width: auto;
+  animation: spin-around calc(var(--speed, 3s) * 2) infinite linear;
+  background: conic-gradient(
+    from calc(270deg - (var(--spread) * 0.5)),
+    transparent 0,
+    var(--shimmer-color, #ffffff) var(--spread),
+    transparent var(--spread)
+  );
+}
+
+/* hover highlight */
+.shimmer-highlight {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  width: 100%;
+  height: 100%;
+  border-radius: var(--radius, 100px);
+  box-shadow: inset 0 -8px 10px rgba(255, 255, 255, 0.12);
+  transition: box-shadow 0.3s ease-in-out;
+  pointer-events: none;
+}
+
+.shimmer-btn:hover .shimmer-highlight {
+  box-shadow: inset 0 -6px 10px rgba(255, 255, 255, 0.25);
+}
+
+.shimmer-btn:active .shimmer-highlight {
+  box-shadow: inset 0 -10px 10px rgba(255, 255, 255, 0.25);
+}
+
+/* backdrop — covers the spark so only the border shimmers */
+.shimmer-backdrop {
+  position: absolute;
+  inset: var(--cut, 0.05em);
+  z-index: -20;
+  border-radius: var(--radius, 100px);
+  background: var(--ink);
+}
+
+@keyframes shimmer-slide {
+  to {
+    transform: translate(calc(100cqw - 100%), 0);
+  }
+}
+
+@keyframes spin-around {
+  0% {
+    transform: translateZ(0) rotate(0);
+  }
+  15%,
+  35% {
+    transform: translateZ(0) rotate(90deg);
+  }
+  65%,
+  85% {
+    transform: translateZ(0) rotate(270deg);
+  }
+  100% {
+    transform: translateZ(0) rotate(360deg);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .shimmer-spark,
+  .shimmer-spin {
+    animation: none;
+  }
+}
