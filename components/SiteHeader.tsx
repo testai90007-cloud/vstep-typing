@@ -7,6 +7,7 @@ import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { signIn, signOut, useSession } from 'next-auth/react';
 import ThemeToggle from '@/components/ThemeToggle';
+import { HoverBorderGradient } from '@/components/ui/hover-border-gradient';
 import {
   PencilSquareIcon,
   MicrophoneIcon,
@@ -119,14 +120,13 @@ export default function SiteHeader() {
               </button>
             </>
           ) : (
-            <button
-              className="btn primary"
-              style={{ padding: '8px 16px', fontSize: '0.85rem' }}
+            <HoverBorderGradient
               onClick={() => signIn('google')}
+              aria-label="Đăng nhập bằng Google"
             >
               <GoogleIcon />
-              Đăng nhập
-            </button>
+              <span>Đăng nhập</span>
+            </HoverBorderGradient>
           )}
         </div>
       </div>
