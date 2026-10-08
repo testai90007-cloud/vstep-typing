@@ -31,6 +31,7 @@ interface ScoreResult {
   overall: number;
   feedback_vi: string;
 }
+export type { ScoreResult };
 
 type Phase = 'idle' | 'prep' | 'ready' | 'recording' | 'uploading' | 'done';
 
@@ -43,6 +44,9 @@ export function RecorderPanel({
   talkSec,
   prepLabel,
   serverKey,
+  examMode = false,
+  onPartFinished,
+  sessionMode,
 }: {
   part: number;
   promptText: string;
@@ -51,6 +55,16 @@ export function RecorderPanel({
   prepLabel: string;
   /** null = still checking, true/false = server has its own OpenAI key or not */
   serverKey: boolean | null;
+  /**
+   * Exam (mock-test) mode: auto-starts prep on mount, auto-starts recording
+   * when prep ends, hides the detailed score card (the parent shows a final
+   * summary instead), and calls onPartFinished once per attempt — with the
+   * score on success, or null when scoring failed.
+   */
+  examMode?: boolean;
+  onPartFinished?: (result: ScoreResult | null) => void;
+  /** 'practice' | 'mock' — stored with the session for history */
+  sessionMode?: string;
 }) {
   const [phase, setPhase] = useState<Phase>('idle');
   const [prepLeft, setPrepLeft] = useState(prepSec);
@@ -61,6 +75,8 @@ export function RecorderPanel({
   const chunksRef = useRef<Blob[]>([]);
   const streamRef = useRef<MediaStream | null>(null);
   const stoppingRef = useRef(false);
+  /** examMode: once an error happens, stop auto-advancing (avoid record loops) */
+  const examBlockedRef = useRef(false);
 
   useEffect(() => {
     return () => {
@@ -97,6 +113,24 @@ export function RecorderPanel({
     return () => clearTimeout(id);
   }, [phase, prepLeft]);
 
+  // examMode: auto-start prep as soon as the part mounts
+  useEffect(() => {
+    if (examMode && phase === 'idle') {
+      startPrep();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [examMode, phase]);
+
+  // examMode: auto-start recording when prep finishes (skip the manual step)
+  useEffect(() => {
+    if (!examMode || phase !== 'ready' || examBlockedRef.current) return;
+    const t = setTimeout(() => {
+      void startRecording();
+    }, 1500);
+    return () => clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [examMode, phase]);
+
   async function startRecording() {
     setError('');
     stoppingRef.current = false;
@@ -122,6 +156,10 @@ export function RecorderPanel({
       setPhase('recording');
     } catch {
       setError('Không truy cập được micro. Hãy cho phép trình duyệt dùng micro rồi thử lại.');
+      if (examMode) {
+        examBlockedRef.current = true;
+        onPartFinished?.(null);
+      }
     }
   }
 
@@ -156,6 +194,10 @@ export function RecorderPanel({
       setError('Bản ghi âm trống. Hãy thử ghi âm lại.');
       setPhase('ready');
       stoppingRef.current = false;
+      if (examMode) {
+        examBlockedRef.current = true;
+        onPartFinished?.(null);
+      }
       return;
     }
     setPhase('uploading');
@@ -163,6 +205,7 @@ export function RecorderPanel({
     fd.append('audio', blob, 'recording.webm');
     fd.append('part', String(part));
     fd.append('prompt', promptText);
+    if (sessionMode) fd.append('mode', sessionMode);
     // BYOK: attach the user's own provider + key when saved. When absent, the
     // server falls back to its own OPENAI_API_KEY (if configured).
     const ai = getAiSettings();
@@ -173,6 +216,10 @@ export function RecorderPanel({
       );
       setPhase('ready');
       stoppingRef.current = false;
+      if (examMode) {
+        examBlockedRef.current = true;
+        onPartFinished?.(null);
+      }
       return;
     }
     if (ai.apiKey) {
@@ -185,9 +232,14 @@ export function RecorderPanel({
       if (!res.ok) throw new Error(data.error || 'Chấm bài thất bại.');
       setResult(data as ScoreResult);
       setPhase('done');
+      onPartFinished?.(data as ScoreResult);
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Chấm bài thất bại. Hãy thử lại.');
       setPhase('ready');
+      if (examMode) {
+        examBlockedRef.current = true;
+        onPartFinished?.(null);
+      }
     }
     stoppingRef.current = false;
   }
@@ -234,18 +286,24 @@ export function RecorderPanel({
           </p>
         </div>
       )}
-      {phase === 'ready' && (
-        <div className="btn-row">
-          <button className="btn primary" onClick={startRecording}>
+      {phase === 'ready' &&
+        (examMode ? (
+          <p style={{ color: 'var(--muted)', display: 'flex', alignItems: 'center', gap: 9 }}>
             <span className="rec-dot" />
-            Bắt đầu nói (tối đa {fmt(talkSec)})
-          </button>
-          <button className="btn" onClick={startPrep}>
-            <ArrowPathIcon width={16} height={16} />
-            Chuẩn bị lại
-          </button>
-        </div>
-      )}
+            Hết giờ chuẩn bị — bắt đầu ghi âm…
+          </p>
+        ) : (
+          <div className="btn-row">
+            <button className="btn primary" onClick={startRecording}>
+              <span className="rec-dot" />
+              Bắt đầu nói (tối đa {fmt(talkSec)})
+            </button>
+            <button className="btn" onClick={startPrep}>
+              <ArrowPathIcon width={16} height={16} />
+              Chuẩn bị lại
+            </button>
+          </div>
+        ))}
       {phase === 'recording' && (
         <div className="card-soft" style={{ textAlign: 'center' }}>
           <div style={{ fontSize: '0.85rem', color: 'var(--muted)', display: 'inline-flex', alignItems: 'center' }}>
@@ -273,19 +331,28 @@ export function RecorderPanel({
         </p>
       )}
       {phase === 'done' && result && (
-        <>
-          <ScoreCard result={result} />
-          <div className="btn-row" style={{ marginTop: 14 }}>
-            <button className="btn" onClick={startPrep}>
-              <ArrowPathIcon width={16} height={16} />
-              Ghi âm lại
-            </button>
-            <Link href="/progress" className="btn" style={{ textDecoration: 'none' }}>
-              <ChartBarIcon width={16} height={16} />
-              Xem tiến bộ
-            </Link>
+        examMode ? (
+          <div className="card-soft" style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+            <CheckCircleIcon width={22} height={22} style={{ color: 'var(--correct)', flexShrink: 0 }} />
+            <p style={{ margin: 0, fontSize: '0.92rem' }}>
+              Đã hoàn thành Part {part} — AI đã chấm xong, điểm chi tiết sẽ hiện ở cuối bài thi.
+            </p>
           </div>
-        </>
+        ) : (
+          <>
+            <ScoreCard result={result} />
+            <div className="btn-row" style={{ marginTop: 14 }}>
+              <button className="btn" onClick={startPrep}>
+                <ArrowPathIcon width={16} height={16} />
+                Ghi âm lại
+              </button>
+              <Link href="/progress" className="btn" style={{ textDecoration: 'none' }}>
+                <ChartBarIcon width={16} height={16} />
+                Xem tiến bộ
+              </Link>
+            </div>
+          </>
+        )
       )}
     </div>
   );
@@ -350,6 +417,10 @@ export function AuthedRecorder(props: {
   prepSec: number;
   talkSec: number;
   prepLabel: string;
+  examMode?: boolean;
+  onPartFinished?: (result: ScoreResult | null) => void;
+  /** 'practice' | 'mock' — stored with the session for history */
+  sessionMode?: string;
 }) {
   const { data: session, status } = useSession();
   // Whether the server has its own OpenAI key as a fallback (boolean only).

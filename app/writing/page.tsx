@@ -59,10 +59,9 @@ export default function WritingIndexPage() {
           Trang chủ
         </Link>
       </div>
-      <h1 className="brand" style={{ fontSize: '2.2rem' }}>
-        Luyện <span className="hl">Writing</span>
-      </h1>
-      <p className="lead">Chọn dạng bài để luyện gõ. Mỗi bài có chế độ từng phần, toàn bài và thi thử.</p>
+      <p className="page-eyebrow">01 — Luyện Viết</p>
+      <h1 className="page-title">Chọn đề viết</h1>
+      <p className="page-sub">Task 1: thư/email ≥ 120 từ. Task 2: bài luận ≥ 250 từ. Thi thử 60 phút, tự động nộp khi hết giờ.</p>
 
       <ExamFormatCard
         icon={PencilSquareIcon}
@@ -72,23 +71,13 @@ export default function WritingIndexPage() {
           { value: '0–10', label: 'thang điểm' },
         ]}
         parts={[
-          {
-            name: 'Task 1 · Thư / Email',
-            time: '20 phút',
-            items: '≥ 120 từ',
-            desc: 'Viết thư/email theo tình huống: thân mật, trang trọng, bán trang trọng hoặc trả lời câu hỏi.',
-          },
-          {
-            name: 'Task 2 · Bài luận',
-            time: '40 phút',
-            items: '≥ 250 từ',
-            desc: 'Bài luận 5 dạng: Discussion, Agree/Disagree, Advantages–Disadvantages, Causes–Effects, Causes–Solutions.',
-          },
+          { name: 'Task 1 · Thư / Email', minutes: 20, time: "20'", items: '≥ 120 từ' },
+          { name: 'Task 2 · Bài luận', minutes: 40, time: "40'", items: '≥ 250 từ' },
         ]}
         rules={[
-          'Viết đủ số từ tối thiểu của mỗi task (~120 từ Task 1, ~250 từ Task 2).',
-          'Phân bổ thời gian đúng 20/40 phút — Task 2 gấp đôi điểm nên ưu tiên thời gian.',
-          'Điểm chấm theo: hoàn thành yêu cầu đề, bố cục, từ vựng, ngữ pháp.',
+          'Đủ ~120 từ Task 1, ~250 từ Task 2',
+          "Chia giờ 20'/40' — Task 2 gấp đôi điểm",
+          'Chấm: đúng đề, bố cục, từ vựng, ngữ pháp',
         ]}
       />
 

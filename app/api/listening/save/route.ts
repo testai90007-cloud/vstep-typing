@@ -10,6 +10,7 @@ interface SaveBody {
   total?: number;
   durationSec?: number;
   answers?: Record<string, number>;
+  mode?: string;
 }
 
 export async function POST(req: NextRequest) {
@@ -40,10 +41,12 @@ export async function POST(req: NextRequest) {
       name: session.user.name,
       image: session.user.image,
     });
-    await sql`INSERT INTO listening_sessions (user_id, test_id, score, total, duration_sec, answers)
+    await sql`ALTER TABLE listening_sessions ADD COLUMN IF NOT EXISTS mode TEXT`;
+    await sql`INSERT INTO listening_sessions (user_id, test_id, score, total, duration_sec, answers, mode)
               VALUES (${session.user.id}, ${body.testId || null}, ${body.score ?? null},
                       ${body.total ?? null}, ${body.durationSec ?? null},
-                      ${body.answers ? JSON.stringify(body.answers) : null})`;
+                      ${body.answers ? JSON.stringify(body.answers) : null},
+                      ${body.mode || null})`;
     return NextResponse.json({ saved: true });
   } catch (err) {
     console.error('listening/save failed:', err);

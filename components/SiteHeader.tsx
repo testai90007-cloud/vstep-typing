@@ -71,11 +71,7 @@ export default function SiteHeader() {
       <header className="site-header">
       <div className="site-header-inner">
         <Link href="/" className="logo" aria-label="Luyện VSTEP — trang chủ">
-          <span className="logo-mark">
-            <svg width="13" height="13" viewBox="0 0 16 16" aria-hidden="true">
-              <path d="M8 1.5 L15 14.5 H1 Z" fill="currentColor" />
-            </svg>
-          </span>
+          <span className="logo-mark" aria-hidden="true" />
           <span className="logo-text">Luyện VSTEP</span>
         </Link>
 

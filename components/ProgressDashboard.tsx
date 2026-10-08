@@ -22,8 +22,9 @@ import {
 import { getTemplate } from '@/lib/templates';
 import { WRITING_TESTS } from '@/lib/writing-tests';
 import { READING_TESTS } from '@/lib/reading-tests';
+import { LISTENING_TESTS } from '@/lib/listening';
 
-function writingTitle(templateId: string | null): string {
+export function writingTitle(templateId: string | null): string {
   if (!templateId) return '—';
   const tpl = getTemplate(templateId);
   if (tpl) return tpl.title;
@@ -32,13 +33,20 @@ function writingTitle(templateId: string | null): string {
   return templateId;
 }
 
-function readingTitle(testId: string | null): string {
+export function readingTitle(testId: string | null): string {
   if (!testId) return '—';
   const test = READING_TESTS.find((t) => t.id === testId);
   return test ? test.title : testId;
 }
 
+export function listeningTitle(testId: string | null): string {
+  if (!testId) return '—';
+  const test = LISTENING_TESTS.find((t) => t.id === testId);
+  return test ? test.title : testId;
+}
+
 export interface WritingSession {
+  id: number;
   template_id: string;
   mode: string;
   accuracy: number;
@@ -47,28 +55,34 @@ export interface WritingSession {
 }
 
 export interface SpeakingSession {
+  id: number;
   part: number;
   prompt: string;
   transcript: string;
   scores: Record<string, number>;
   overall: number;
   feedback: string;
+  mode?: string | null;
   created_at: string;
 }
 
 export interface ListeningSession {
+  id: number;
   test_id: string;
   score: number;
   total: number;
   duration_sec: number;
+  mode?: string | null;
   created_at: string;
 }
 
 export interface ReadingSession {
+  id: number;
   test_id: string;
   score: number;
   total: number;
   duration_sec: number;
+  mode?: string | null;
   created_at: string;
 }
 
@@ -93,6 +107,18 @@ function relDay(iso: string): string {
   if (diff === 1) return 'Hôm qua';
   if (diff < 7) return `${diff} ngày trước`;
   return d.toLocaleDateString('vi-VN', { day: '2-digit', month: '2-digit' });
+}
+
+/** "5 phút trước" / "3 giờ trước" / fallback to relDay */
+function relTime(iso: string): string {
+  const d = new Date(iso);
+  if (isNaN(d.getTime())) return '—';
+  const mins = Math.floor((Date.now() - d.getTime()) / 60000);
+  if (mins < 1) return 'Vừa xong';
+  if (mins < 60) return `${mins} phút trước`;
+  const hours = Math.floor(mins / 60);
+  if (hours < 24) return `${hours} giờ trước`;
+  return relDay(iso);
 }
 
 /**
@@ -524,12 +550,108 @@ export function DashboardView({
 
   const [tab, setTab] = useState<HistTab>('writing');
 
+  /* ---------------- recent activity (merged, newest first) ---------------- */
+  type Activity = {
+    key: string;
+    skill: string;
+    Icon: typeof BookOpenIcon;
+    title: string;
+    score: string;
+    href: string;
+    createdAt: string;
+  };
+  const activities: Activity[] = [
+    ...writing.map((s) => ({
+      key: `w-${s.id}`,
+      skill: 'Viết',
+      Icon: PencilSquareIcon,
+      title: writingTitle(s.template_id),
+      score: s.accuracy != null ? `${Math.round(s.accuracy)}%` : '–',
+      href:
+        s.template_id && s.template_id.startsWith('de-')
+          ? `/writing/de-thi/${s.template_id}`
+          : '/writing',
+      createdAt: s.created_at,
+    })),
+    ...speaking.map((s) => ({
+      key: `s-${s.id}`,
+      skill: 'Nói',
+      Icon: MicrophoneIcon,
+      title: `Part ${s.part}`,
+      score: `${Number(s.overall || 0).toFixed(1)}/10`,
+      href: '/speaking',
+      createdAt: s.created_at,
+    })),
+    ...listening.map((s) => ({
+      key: `l-${s.id}`,
+      skill: 'Nghe',
+      Icon: SpeakerWaveIcon,
+      title: listeningTitle(s.test_id),
+      score: `${s.score}/${s.total}`,
+      href: `/listening/${s.test_id}`,
+      createdAt: s.created_at,
+    })),
+    ...reading.map((s) => ({
+      key: `r-${s.id}`,
+      skill: 'Đọc',
+      Icon: BookOpenIcon,
+      title: readingTitle(s.test_id),
+      score: `${s.score}/${s.total}`,
+      href: `/reading/${s.test_id}`,
+      createdAt: s.created_at,
+    })),
+  ]
+    .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
+    .slice(0, 8);
+
+  /* ---------------- time-range stats ---------------- */
+  const [statRange, setStatRange] = useState<'day' | 'week' | 'month'>('week');
+  const rangeStart =
+    statRange === 'day'
+      ? startOfDay(new Date()).getTime()
+      : Date.now() - (statRange === 'week' ? 7 : 30) * 86400000;
+  const inRange = (iso: string) => {
+    const t = new Date(iso).getTime();
+    return !isNaN(t) && t >= rangeStart;
+  };
+  const wR = writing.filter((s) => inRange(s.created_at));
+  const sR = speaking.filter((s) => inRange(s.created_at));
+  const lR = listening.filter((s) => inRange(s.created_at));
+  const rR = reading.filter((s) => inRange(s.created_at));
+  const rangeCount = wR.length + sR.length + lR.length + rR.length;
+  const rangeSec =
+    wR.reduce((a, s) => a + (s.duration_sec || 0), 0) +
+    lR.reduce((a, s) => a + (s.duration_sec || 0), 0) +
+    rR.reduce((a, s) => a + (s.duration_sec || 0), 0);
+  const dist = [
+    { id: 'writing', label: 'Viết', color: '#8b5cf6', count: wR.length },
+    { id: 'speaking', label: 'Nói', color: '#f59e0b', count: sR.length },
+    { id: 'listening', label: 'Nghe', color: '#3b82f6', count: lR.length },
+    { id: 'reading', label: 'Đọc', color: '#22c55e', count: rR.length },
+  ];
+  const rangeDays = new Set<string>();
+  for (const s of [...wR, ...sR, ...lR, ...rR]) {
+    const d = new Date(s.created_at);
+    if (!isNaN(d.getTime())) rangeDays.add(dayKey(d));
+  }
+
+  /** skill label → dot color for the slim recent-activity rows */
+  const SKILL_DOT: Record<string, string> = {
+    Viết: '#8b5cf6',
+    Nói: '#f59e0b',
+    Nghe: '#3b82f6',
+    Đọc: '#22c55e',
+  };
+
   return (
     <>
       <div className="prog-top">
-        <h1 className="brand" style={{ fontSize: '2.2rem', margin: 0 }}>
-          Tiến độ <span className="hl">học tập</span>
-        </h1>
+        <div>
+          <p className="page-eyebrow">05 — Tiến độ</p>
+          <h1 className="page-title" style={{ marginBottom: 6 }}>
+            Tiến độ học tập
+          </h1>
+        </div>
         <div className="user-chip">
           {userImage ? (
             <img src={userImage} alt="" referrerPolicy="no-referrer" />
@@ -581,14 +703,11 @@ export function DashboardView({
             </div>
           ) : (
             <>
-              {/* ---- hero metrics strip ---- */}
-              <div className="hero-strip">
-                {heroMetrics.map(({ Icon, value, label }) => (
-                  <div key={label} className="hero-metric">
-                    <span className="icon-badge sm">
-                      <Icon width={19} height={19} strokeWidth={1.8} />
-                    </span>
-                    <strong>{value}</strong>
+              {/* ---- hero metrics: hairline stat band ---- */}
+              <div className="stat-band" style={{ marginTop: 26 }}>
+                {heroMetrics.map(({ value, label }) => (
+                  <div key={label}>
+                    <b>{value}</b>
                     <span>{label}</span>
                   </div>
                 ))}
@@ -732,6 +851,127 @@ export function DashboardView({
                 </div>
               </div>
 
+              {/* ---- stats ---- */}
+              <div className="sec-head">
+                <h2 className="section-title" style={{ margin: 0 }}>
+                  <span className="icon-badge sm">
+                    <ChartBarIcon width={18} height={18} strokeWidth={1.8} />
+                  </span>
+                  Thống kê học tập
+                </h2>
+                <div className="seg seg-sm" role="tablist" aria-label="Khoảng thời gian">
+                  {(
+                    [
+                      ['day', 'Hôm nay'],
+                      ['week', '7 ngày'],
+                      ['month', '30 ngày'],
+                    ] as const
+                  ).map(([id, label]) => (
+                    <button
+                      key={id}
+                      role="tab"
+                      aria-selected={statRange === id}
+                      className={statRange === id ? 'active' : ''}
+                      onClick={() => setStatRange(id)}
+                    >
+                      {label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+              <div className="card">
+                <div className="stat-nums">
+                  <div>
+                    <b>{rangeCount}</b>
+                    <span>Buổi luyện</span>
+                  </div>
+                  <div>
+                    <b>{rangeSec > 0 ? fmtTotal(rangeSec) : '–'}</b>
+                    <span>Thời gian học</span>
+                  </div>
+                  <div>
+                    <b>{rangeDays.size}</b>
+                    <span>Ngày học</span>
+                  </div>
+                </div>
+                <p className="stat-dist-label">Phân bổ kỹ năng</p>
+                {rangeCount === 0 ? (
+                  <p style={{ color: 'var(--faint)', fontSize: '0.88rem', margin: 0 }}>
+                    Chưa có buổi luyện nào trong khoảng thời gian này.
+                  </p>
+                ) : (
+                  <>
+                    <div
+                      className="stackbar"
+                      role="img"
+                      aria-label={dist.map((d) => `${d.label}: ${d.count}`).join(', ')}
+                    >
+                      {dist.map((d) =>
+                        d.count > 0 ? (
+                          <i
+                            key={d.id}
+                            style={{
+                              width: `${(d.count / rangeCount) * 100}%`,
+                              background: d.color,
+                            }}
+                          />
+                        ) : null
+                      )}
+                    </div>
+                    <div className="stack-legend">
+                      {dist.map((d) => (
+                        <span key={d.id} className="sl-item">
+                          <i className="sl-dot" style={{ background: d.color }} />
+                          {d.label}
+                          <b>
+                            {d.count} · {Math.round((d.count / rangeCount) * 100)}%
+                          </b>
+                        </span>
+                      ))}
+                    </div>
+                  </>
+                )}
+              </div>
+
+              {/* ---- recent activity (slim) ---- */}
+              <div className="sec-head">
+                <h2 className="section-title" style={{ margin: 0 }}>
+                  <span className="icon-badge sm">
+                    <ClockIcon width={18} height={18} strokeWidth={1.8} />
+                  </span>
+                  Hoạt động gần đây
+                </h2>
+                <Link href="/lich-su" className="sec-link">
+                  Xem tất cả
+                  <ChevronRightIcon width={15} height={15} />
+                </Link>
+              </div>
+              <div className="card">
+                {activities.length === 0 ? (
+                  <p style={{ color: 'var(--muted)', fontSize: '0.9rem', margin: 0 }}>
+                    Chưa có hoạt động nào.
+                  </p>
+                ) : (
+                  <div className="recent-simple">
+                    {activities.slice(0, 5).map((a) => (
+                      <Link key={a.key} href={a.href} className="rs-row">
+                        <i
+                          className="rs-dot"
+                          style={{
+                            background:
+                              SKILL_DOT[a.skill] || 'var(--faint)',
+                          }}
+                        />
+                        <span className="rs-title">{a.title}</span>
+                        <span className="rs-meta">
+                          {a.score} · {relTime(a.createdAt)}
+                        </span>
+                      </Link>
+                    ))}
+                  </div>
+                )}
+              </div>
+
               {/* ---- history tabs ---- */}
               <div className="sec-head">
                 <h2 className="section-title" style={{ margin: 0 }}>
@@ -740,8 +980,12 @@ export function DashboardView({
                   </span>
                   Lịch sử luyện tập
                 </h2>
+                <Link href="/lich-su" className="sec-link">
+                  Xem tất cả lịch sử
+                  <ChevronRightIcon width={15} height={15} />
+                </Link>
               </div>
-              <div className="seg hist-tabs" role="tablist" aria-label="Lịch sử theo kỹ năng">
+              <div className="seg-tabs" role="tablist" aria-label="Lịch sử theo kỹ năng">
                 {tabs.map((t) => (
                   <button
                     key={t.id}
@@ -772,7 +1016,6 @@ export function DashboardView({
                             <>
                               <span className="hist-date">{fmtDate(s.created_at)}</span>
                               <span className="hist-title">{writingTitle(s.template_id)}</span>
-                              <span className="hist-tag">{MODE_LABEL[s.mode] || s.mode}</span>
                               <span className="hist-score">
                                 {s.accuracy != null ? `${Math.round(s.accuracy)}%` : '–'}
                               </span>
@@ -878,7 +1121,7 @@ export function DashboardView({
                         summary={
                           <>
                             <span className="hist-date">{fmtDate(s.created_at)}</span>
-                            <span className="hist-title">{s.test_id}</span>
+                            <span className="hist-title">{listeningTitle(s.test_id)}</span>
                             <span className="hist-score">
                               {s.score}/{s.total}
                               <i>

@@ -17,7 +17,7 @@ export async function GET() {
 
   try {
     const rows = await sql`
-      SELECT part, prompt, transcript, scores, overall, feedback, created_at
+      SELECT id, part, prompt, transcript, scores, overall, feedback, mode, created_at
       FROM speaking_sessions
       WHERE user_id = ${session.user.id}
       ORDER BY created_at DESC

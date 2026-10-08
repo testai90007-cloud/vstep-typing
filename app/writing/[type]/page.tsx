@@ -529,7 +529,7 @@ export default function PracticePage() {
                 </span>
               </div>
 
-              <div className="work-cols">
+              <div className="type-cols">
                 <div>
                   <div className="work-col-head">
                     <span>Mẫu để gõ theo</span>

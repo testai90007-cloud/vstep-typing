@@ -111,10 +111,9 @@ export default function SettingsPage() {
           Trang chủ
         </Link>
       </div>
-      <h1 className="brand" style={{ fontSize: '2.2rem' }}>
-        Cài đặt <span className="hl">AI</span>
-      </h1>
-      <p className="lead">
+      <p className="page-eyebrow">07 — Cài đặt</p>
+      <h1 className="page-title">Cài đặt AI</h1>
+      <p className="page-sub">
         Thêm API key của <strong>chính bạn</strong> để AI chấm bài Speaking. Mỗi người
         dùng key riêng — không phụ thuộc vào key của server.
       </p>
@@ -148,7 +147,7 @@ export default function SettingsPage() {
                     />
                     {p.name}
                   </strong>{' '}
-                  {p.badge && <span className="chip">{p.badge}</span>}
+                  {p.badge && <span className="chip ok">{p.badge}</span>}
                   <br />
                   <span style={{ fontSize: '0.88rem', color: 'var(--muted)' }}>{p.desc}</span>
                 </span>

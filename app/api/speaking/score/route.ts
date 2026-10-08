@@ -248,6 +248,7 @@ export async function POST(req: NextRequest) {
   const audio = form.get('audio');
   const part = Number(form.get('part') || 0);
   const prompt = String(form.get('prompt') || '').slice(0, 2000);
+  const sessionMode = String(form.get('mode') || '') || null;
   const formProvider = String(form.get('provider') || '').toLowerCase();
   // Client-supplied key (BYOK). Used transiently for this request only —
   // never logged, never written to DB, never persisted anywhere.
@@ -333,9 +334,10 @@ export async function POST(req: NextRequest) {
           name: session.user.name,
           image: session.user.image,
         });
-        await sql`INSERT INTO speaking_sessions (user_id, part, prompt, transcript, scores, overall, feedback)
+        await sql`ALTER TABLE speaking_sessions ADD COLUMN IF NOT EXISTS mode TEXT`;
+        await sql`INSERT INTO speaking_sessions (user_id, part, prompt, transcript, scores, overall, feedback, mode)
                   VALUES (${session.user.id}, ${part}, ${prompt}, ${transcript},
-                          ${JSON.stringify(scores)}::jsonb, ${overall}, ${feedback})`;
+                          ${JSON.stringify(scores)}::jsonb, ${overall}, ${feedback}, ${sessionMode})`;
       } catch (dbErr) {
         console.error('speaking score: db save failed:', dbErr);
       }

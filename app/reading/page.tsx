@@ -16,51 +16,27 @@ export default function ReadingListPage() {
           Trang chủ
         </Link>
       </div>
-      <h1 className="brand" style={{ fontSize: '2.2rem' }}>
-        Luyện <span className="hl">Reading</span>
-      </h1>
-      <p className="lead">
-        Đọc 4 bài đọc, trả lời 40 câu trắc nghiệm A/B/C/D — bấm giờ 60 phút như thi
-        thật, chấm điểm tự động và xem lại đáp án sau khi nộp bài.
-      </p>
+      <p className="page-eyebrow">04 — Luyện Đọc</p>
+      <h1 className="page-title">Chọn đề đọc</h1>
+      <p className="page-sub">Đọc 4 bài đọc, trả lời 40 câu trắc nghiệm A/B/C/D — bấm giờ 60 phút như thi thật, chấm điểm tự động và xem lại đáp án sau khi nộp bài.</p>
 
       <ExamFormatCard
         icon={BookOpenIcon}
         stats={[
           { value: '60 phút', label: 'tổng thời gian' },
           { value: '40 câu', label: 'trắc nghiệm A/B/C/D' },
-          { value: '4 bài', label: 'bài đọc' },
+          { value: '4', label: 'bài đọc' },
         ]}
         parts={[
-          {
-            name: 'Part 1 · Bài đọc 1',
-            time: '≈ 15 phút',
-            items: '10 câu',
-            desc: 'Đọc bài đọc đầu tiên và trả lời 10 câu hỏi trắc nghiệm A/B/C/D.',
-          },
-          {
-            name: 'Part 2 · Bài đọc 2',
-            time: '≈ 15 phút',
-            items: '10 câu',
-            desc: 'Đọc bài đọc thứ hai và trả lời 10 câu hỏi trắc nghiệm A/B/C/D.',
-          },
-          {
-            name: 'Part 3 · Bài đọc 3',
-            time: '≈ 15 phút',
-            items: '10 câu',
-            desc: 'Đọc bài đọc thứ ba và trả lời 10 câu hỏi trắc nghiệm A/B/C/D.',
-          },
-          {
-            name: 'Part 4 · Bài đọc 4',
-            time: '≈ 15 phút',
-            items: '10 câu',
-            desc: 'Đọc bài đọc cuối cùng và trả lời 10 câu hỏi trắc nghiệm A/B/C/D.',
-          },
+          { name: 'Bài đọc 1', minutes: 15, time: '≈15\'', items: '10 câu' },
+          { name: 'Bài đọc 2', minutes: 15, time: '≈15\'', items: '10 câu' },
+          { name: 'Bài đọc 3', minutes: 15, time: '≈15\'', items: '10 câu' },
+          { name: 'Bài đọc 4', minutes: 15, time: '≈15\'', items: '10 câu' },
         ]}
         rules={[
-          'Đọc lướt câu hỏi trước khi đọc kỹ bài đọc để định vị thông tin nhanh.',
-          'Với câu từ vựng (closest in meaning), đọc kỹ ngữ cảnh quanh từ được hỏi.',
-          'Không bỏ trống câu nào — đoán cũng phải chọn một đáp án.',
+          'Đọc câu hỏi trước, đọc bài sau',
+          'Từ vựng: đoán theo ngữ cảnh',
+          'Không bỏ trống — đoán cũng chọn',
         ]}
       />
 

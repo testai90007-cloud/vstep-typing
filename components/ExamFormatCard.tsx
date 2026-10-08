@@ -1,17 +1,10 @@
 'use client';
 
-// ExamFormatCard: shared "Cấu trúc đề thi thật" info card used on the four
-// skill landing pages (writing / speaking / listening / reading).
-// Redesigned as an exam "journey": numbered step cards linked by arrows,
-// each with time + item-count pills — scannable at a glance.
+// ExamFormatCard: "Cấu trúc đề thi thật" — minimal diagram style.
+// A proportional time bar (segment width ∝ minutes per part) + one-line
+// part rows + ultra-short tips. Almost no prose: the shape IS the info.
 
-import { Fragment } from 'react';
-import {
-  ArrowRightIcon,
-  CheckCircleIcon,
-  ClockIcon,
-  QuestionMarkCircleIcon,
-} from '@heroicons/react/24/outline';
+import { CheckCircleIcon } from '@heroicons/react/24/outline';
 
 export interface ExamStat {
   value: string;
@@ -20,11 +13,12 @@ export interface ExamStat {
 
 export interface ExamPart {
   name: string;
-  /** e.g. "20 phút" or "1' chuẩn bị + 3' nói" */
+  /** minutes — drives the time-bar segment width */
+  minutes: number;
+  /** compact label shown in the bar and the row, e.g. "20'", "≈15'" */
   time: string;
-  /** e.g. "8 câu", "≥ 120 từ", "1 tình huống" */
+  /** compact label, e.g. "≥ 120 từ", "8 câu" */
   items: string;
-  desc: string;
 }
 
 export default function ExamFormatCard({
@@ -54,43 +48,45 @@ export default function ExamFormatCard({
         </span>
       </div>
 
-      <div className="exam-steps">
-        {parts.map((p, i) => (
-          <Fragment key={p.name}>
-            <div className="exam-step">
-              <span className="step-num">{String(i + 1).padStart(2, '0')}</span>
-              <div className="step-main">
-                <strong>{p.name}</strong>
-                <p>{p.desc}</p>
-                <div className="step-pills">
-                  <span className="step-pill">
-                    <ClockIcon width={13} height={13} />
-                    {p.time}
-                  </span>
-                  <span className="step-pill">
-                    <QuestionMarkCircleIcon width={13} height={13} />
-                    {p.items}
-                  </span>
-                </div>
-              </div>
-            </div>
-            {i < parts.length - 1 && (
-              <div className="step-arrow" aria-hidden="true">
-                <ArrowRightIcon width={18} height={18} />
-              </div>
-            )}
-          </Fragment>
+      {/* proportional time diagram */}
+      <div
+        className="timebar"
+        role="img"
+        aria-label={parts.map((p) => `${p.name}: ${p.time}`).join(' · ')}
+      >
+        {parts.map((p) => (
+          <div
+            key={p.name}
+            className="tseg"
+            style={{ flex: `${p.minutes} 1 0` }}
+            title={`${p.name} — ${p.time}`}
+          >
+            {p.time}
+          </div>
         ))}
       </div>
 
-      <ul className="exam-rules">
-        {rules.map((r) => (
-          <li key={r}>
-            <CheckCircleIcon width={15} height={15} />
-            <span>{r}</span>
-          </li>
+      {/* one-line part rows */}
+      <div className="exam-rows">
+        {parts.map((p, i) => (
+          <div className="exam-row" key={p.name}>
+            <span className="n">{String(i + 1).padStart(2, '0')}</span>
+            <strong>{p.name}</strong>
+            <span className="q">{p.items}</span>
+            <span className="t">{p.time}</span>
+          </div>
         ))}
-      </ul>
+      </div>
+
+      {/* ultra-short tips */}
+      <div className="exam-tips">
+        {rules.map((r) => (
+          <span key={r}>
+            <CheckCircleIcon width={14} height={14} />
+            {r}
+          </span>
+        ))}
+      </div>
     </section>
   );
 }

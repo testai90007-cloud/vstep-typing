@@ -17,6 +17,7 @@ const COLS: { title: string; links: { href: string; label: string }[] }[] = [
     title: 'Tài khoản',
     links: [
       { href: '/progress', label: 'Tiến độ học tập' },
+      { href: '/lich-su', label: 'Lịch sử làm bài' },
       { href: '/ho-so-nang-luc', label: 'Hồ sơ năng lực' },
       { href: '/settings', label: 'Cài đặt AI' },
     ],
@@ -29,11 +30,7 @@ export default function SiteFooter() {
       <div className="site-footer-inner">
         <div className="footer-grid">
           <div className="footer-brand">
-            <span className="logo-mark" aria-hidden="true">
-              <svg width="12" height="12" viewBox="0 0 16 16">
-                <path d="M8 1.5 L15 14.5 H1 Z" fill="currentColor" />
-              </svg>
-            </span>
+            <span className="logo-mark" aria-hidden="true" />
             <p>Luyện VSTEP — công cụ ôn thi VSTEP miễn phí, lưu tiến độ theo tài khoản Google của bạn.</p>
           </div>
           {COLS.map((col) => (

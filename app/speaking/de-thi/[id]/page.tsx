@@ -1,22 +1,27 @@
 'use client';
 
-// Speaking mock test: /speaking/de-thi/[id]
-// One full test (Part 1 + Part 2 + Part 3) with real VSTEP timing per part.
-// Each part shows its prompt and an AuthedRecorder for recording + AI scoring.
+// Speaking test: /speaking/de-thi/[id]
+// Two modes: practice (free part tabs, retries, detailed per-part scores) and
+// mock (sequential Part 1 → 2 → 3 with real exam timing, auto-advance).
 
 import { useMemo, useState } from 'react';
 import Link from 'next/link';
 import { useParams } from 'next/navigation';
 import {
   ArrowLeftIcon,
+  BookOpenIcon,
   ChatBubbleOvalLeftEllipsisIcon,
-  ClockIcon,
+  FlagIcon,
   LightBulbIcon,
   PresentationChartBarIcon,
 } from '@heroicons/react/24/outline';
 import { AuthedRecorder } from '@/components/SpeakingRecorder';
+import SpeakingPartBlock from '@/components/SpeakingPartBlock';
+import SpeakingMockFlow from '@/components/SpeakingMockFlow';
 import { SPEAKING_TESTS } from '@/lib/speaking-tests';
 import { SPEAKING_TIMING } from '@/lib/speaking';
+
+type Mode = 'pick' | 'practice' | 'mock';
 
 const PART_TABS = [
   { n: 1 as const, label: 'Part 1', sub: 'Social Interaction · 3 phút', Icon: ChatBubbleOvalLeftEllipsisIcon },
@@ -28,6 +33,7 @@ export default function SpeakingTestPage() {
   const params = useParams();
   const id = Array.isArray(params.id) ? params.id[0] : params.id;
   const test = useMemo(() => SPEAKING_TESTS.find((t) => t.id === id), [id]);
+  const [mode, setMode] = useState<Mode>('pick');
   const [tab, setTab] = useState<1 | 2 | 3>(1);
 
   if (!test) {
@@ -49,13 +55,32 @@ export default function SpeakingTestPage() {
     );
   }
 
-  const p1Prompt = `Part 1 questions:\n${test.part1.map((q, i) => `${i + 1}. ${q}`).join('\n')}`;
-  const p2Prompt =
-    `Situation: ${test.part2.situation}\nOptions:\n` +
-    test.part2.options.map((o, i) => `${i + 1}. ${o}`).join('\n');
-  const p3Prompt =
-    `Topic: ${test.part3.topic}\nMind-map: ${test.part3.points.join(' / ')}\nFollow-up questions:\n` +
-    test.part3.followUps.map((q, i) => `${i + 1}. ${q}`).join('\n');
+  const prompts = {
+    1: `Part 1 questions:\n${test.part1.map((q, i) => `${i + 1}. ${q}`).join('\n')}`,
+    2:
+      `Situation: ${test.part2.situation}\nOptions:\n` +
+      test.part2.options.map((o, i) => `${i + 1}. ${o}`).join('\n'),
+    3:
+      `Topic: ${test.part3.topic}\nMind-map: ${test.part3.points.join(' / ')}\nFollow-up questions:\n` +
+      test.part3.followUps.map((q, i) => `${i + 1}. ${q}`).join('\n'),
+  } as const;
+
+  const timingKey = { 1: 'part1', 2: 'part2', 3: 'part3' } as const;
+
+  const recorderFor = (n: 1 | 2 | 3) => {
+    const t = SPEAKING_TIMING[timingKey[n]];
+    return (
+      <AuthedRecorder
+        key={`t-${test.id}-${n}`}
+        part={n}
+        promptText={prompts[n]}
+        prepSec={t.prep}
+        talkSec={t.talk}
+        prepLabel={t.label}
+        sessionMode="practice"
+      />
+    );
+  };
 
   return (
     <main className="page">
@@ -68,138 +93,64 @@ export default function SpeakingTestPage() {
       <h1 className="brand" style={{ fontSize: '1.9rem' }}>
         {test.title} <span className="hl">· Speaking</span>
       </h1>
-      <p className="lead">
-        Thi thử đủ 3 parts như thi thật — ghi âm từng part, AI chấm theo 5 tiêu chí
-        chính thức của VSTEP.
-      </p>
 
-      <div className="seg" style={{ marginTop: 20 }} role="tablist" aria-label="Chọn part">
-        {PART_TABS.map(({ n, label, sub, Icon }) => (
-          <button
-            key={n}
-            role="tab"
-            aria-selected={tab === n}
-            className={tab === n ? 'active' : ''}
-            onClick={() => setTab(n)}
-          >
-            <Icon width={16} height={16} />
-            {label}
-          </button>
-        ))}
-      </div>
-      <p style={{ color: 'var(--muted)', fontSize: '0.88rem', margin: '10px 0 0' }}>
-        {PART_TABS[tab - 1].sub}
-      </p>
-
-      {tab === 1 && (
-        <div className="card" style={{ marginTop: 16 }}>
-          <h2 style={{ margin: '0 0 4px', fontSize: '1.25rem', fontWeight: 800 }}>
-            Part 1 · Social Interaction
-          </h2>
-          <p style={{ color: 'var(--muted)', fontSize: '0.9rem', margin: '0 0 14px', display: 'flex', alignItems: 'center', gap: 7 }}>
-            <ClockIcon width={15} height={15} />
-            3 phút · trả lời 6 câu hỏi · không có thời gian chuẩn bị
+      {mode === 'pick' && (
+        <>
+          <p className="lead">
+            Thi thử đủ 3 parts như thi thật — ghi âm từng part, AI chấm theo 5 tiêu
+            chí chính thức của VSTEP.
           </p>
-          <div className="speak-layout">
-            <div>
-              <ol className="q-list" style={{ marginTop: 0 }}>
-                {test.part1.map((q, i) => (
-                  <li key={i}>{q}</li>
-                ))}
-              </ol>
-            </div>
-            <div className="speak-side">
-              <AuthedRecorder
-                key={`t-${test.id}-1`}
-                part={1}
-                promptText={p1Prompt}
-                prepSec={SPEAKING_TIMING.part1.prep}
-                talkSec={SPEAKING_TIMING.part1.talk}
-                prepLabel={SPEAKING_TIMING.part1.label}
-              />
-            </div>
-          </div>
-        </div>
-      )}
-
-      {tab === 2 && (
-        <div className="card" style={{ marginTop: 16 }}>
-          <h2 style={{ margin: '0 0 4px', fontSize: '1.25rem', fontWeight: 800 }}>
-            Part 2 · Solution Discussion
-          </h2>
-          <p style={{ color: 'var(--muted)', fontSize: '0.9rem', margin: '0 0 14px', display: 'flex', alignItems: 'center', gap: 7 }}>
-            <ClockIcon width={15} height={15} />
-            1 phút chuẩn bị + 3 phút nói · chọn 1 trong 3 giải pháp và bảo vệ lựa chọn của bạn
-          </p>
-          <div className="speak-layout">
-            <div>
-              <p style={{ fontWeight: 700, fontSize: '0.92rem', margin: '0 0 8px' }}>Tình huống:</p>
-              <p style={{ fontSize: '0.95rem', lineHeight: 1.7, margin: '0 0 10px' }}>
-                {test.part2.situation}
+          <div className="mode-cards">
+            <button className="card lift mode-card" onClick={() => setMode('practice')}>
+              <span className="icon-badge">
+                <BookOpenIcon width={24} height={24} strokeWidth={1.6} />
+              </span>
+              <strong>Luyện tập</strong>
+              <span className="chip">Tự do từng part</span>
+              <p>
+                Chuyển part thoải mái, ghi âm lại bao nhiêu lần cũng được, xem điểm
+                chi tiết từng part ngay sau khi chấm.
               </p>
-              <p style={{ fontWeight: 700, fontSize: '0.92rem', margin: '0 0 8px' }}>Các lựa chọn:</p>
-              <ol className="q-list" style={{ marginTop: 0 }}>
-                {test.part2.options.map((o, i) => (
-                  <li key={i}>{o}</li>
-                ))}
-              </ol>
-            </div>
-            <div className="speak-side">
-              <AuthedRecorder
-                key={`t-${test.id}-2`}
-                part={2}
-                promptText={p2Prompt}
-                prepSec={SPEAKING_TIMING.part2.prep}
-                talkSec={SPEAKING_TIMING.part2.talk}
-                prepLabel={SPEAKING_TIMING.part2.label}
-              />
-            </div>
+            </button>
+            <button className="card lift mode-card" onClick={() => setMode('mock')}>
+              <span className="icon-badge">
+                <FlagIcon width={24} height={24} strokeWidth={1.6} />
+              </span>
+              <strong>Thi thử</strong>
+              <span className="chip accent">Đúng quy trình thi thật</span>
+              <p>
+                Part 1 → 2 → 3 liên tục (~12 phút). Hết giờ chuẩn bị tự động ghi âm,
+                hết giờ nói tự động dừng — không quay lại, không làm lại.
+              </p>
+            </button>
           </div>
-        </div>
+        </>
       )}
 
-      {tab === 3 && (
-        <div className="card" style={{ marginTop: 16 }}>
-          <h2 style={{ margin: '0 0 4px', fontSize: '1.25rem', fontWeight: 800 }}>
-            Part 3 · Topic Development
-          </h2>
-          <p style={{ color: 'var(--muted)', fontSize: '0.9rem', margin: '0 0 14px', display: 'flex', alignItems: 'center', gap: 7 }}>
-            <ClockIcon width={15} height={15} />
-            1 phút chuẩn bị + 4 phút nói · triển khai chủ đề theo mind-map, sau đó tự trả
-            lời câu hỏi mở rộng
-          </p>
-          <div className="speak-layout">
-            <div>
-              <p style={{ fontSize: '1.15rem', fontWeight: 700, margin: '0 0 12px' }}>
-                {test.part3.topic}
-              </p>
-              <div className="mindmap">
-                {test.part3.points.map((p, i) => (
-                  <span key={i}>{p}</span>
-                ))}
-              </div>
-              <strong style={{ fontSize: '0.9rem' }}>
-                Câu hỏi mở rộng (tự luyện thêm sau bài nói chính):
-              </strong>
-              <ol className="q-list">
-                {test.part3.followUps.map((q, i) => (
-                  <li key={i}>{q}</li>
-                ))}
-              </ol>
-            </div>
-            <div className="speak-side">
-              <AuthedRecorder
-                key={`t-${test.id}-3`}
-                part={3}
-                promptText={p3Prompt}
-                prepSec={SPEAKING_TIMING.part3.prep}
-                talkSec={SPEAKING_TIMING.part3.talk}
-                prepLabel={SPEAKING_TIMING.part3.label}
-              />
-            </div>
+      {mode === 'practice' && (
+        <>
+          <div className="seg" style={{ marginTop: 20 }} role="tablist" aria-label="Chọn part">
+            {PART_TABS.map(({ n, label, Icon }) => (
+              <button
+                key={n}
+                role="tab"
+                aria-selected={tab === n}
+                className={tab === n ? 'active' : ''}
+                onClick={() => setTab(n)}
+              >
+                <Icon width={16} height={16} />
+                {label}
+              </button>
+            ))}
           </div>
-        </div>
+          <p style={{ color: 'var(--muted)', fontSize: '0.88rem', margin: '10px 0 0' }}>
+            {PART_TABS[tab - 1].sub} <span className="hl">· Luyện tập</span>
+          </p>
+          <SpeakingPartBlock part={tab} test={test} recorder={recorderFor(tab)} />
+        </>
       )}
+
+      {mode === 'mock' && <SpeakingMockFlow test={test} />}
     </main>
   );
 }

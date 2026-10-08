@@ -10,6 +10,7 @@ interface SaveBody {
   total?: number;
   durationSec?: number;
   answers?: Record<string, number>;
+  mode?: string;
 }
 
 export async function POST(req: NextRequest) {
@@ -46,16 +47,18 @@ export async function POST(req: NextRequest) {
       created_at   TIMESTAMPTZ DEFAULT now()
     )`;
     await sql`CREATE INDEX IF NOT EXISTS idx_reading_user ON reading_sessions(user_id, created_at DESC)`;
+    await sql`ALTER TABLE reading_sessions ADD COLUMN IF NOT EXISTS mode TEXT`;
     await ensureUser(sql, {
       id: session.user.id,
       email: session.user.email,
       name: session.user.name,
       image: session.user.image,
     });
-    await sql`INSERT INTO reading_sessions (user_id, test_id, score, total, duration_sec, answers)
+    await sql`INSERT INTO reading_sessions (user_id, test_id, score, total, duration_sec, answers, mode)
               VALUES (${session.user.id}, ${body.testId || null}, ${body.score ?? null},
                       ${body.total ?? null}, ${body.durationSec ?? null},
-                      ${body.answers ? JSON.stringify(body.answers) : null})`;
+                      ${body.answers ? JSON.stringify(body.answers) : null},
+                      ${body.mode || null})`;
     return NextResponse.json({ saved: true });
   } catch (err) {
     console.error('reading/save failed:', err);

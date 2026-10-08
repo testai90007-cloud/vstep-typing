@@ -14,6 +14,7 @@ import {
   CheckCircleIcon,
   CheckIcon,
   ClockIcon,
+  FlagIcon,
   XCircleIcon,
 } from '@heroicons/react/24/outline';
 import { READING_TESTS } from '@/lib/reading-tests';
@@ -41,6 +42,9 @@ export default function ReadingPlayerPage() {
   const [answers, setAnswers] = useState<Record<number, number>>({});
   const [timeLeft, setTimeLeft] = useState(TOTAL_MIN * 60);
   const [submitted, setSubmitted] = useState(false);
+  const [mode, setMode] = useState<'pick' | 'practice' | 'mock'>('pick');
+  /** practice mode: parts whose answers were checked immediately */
+  const [checkedParts, setCheckedParts] = useState<Record<number, boolean>>({});
   const submittedRef = useRef(false);
   const { data: session } = useSession();
   const [saveState, setSaveState] = useState<'idle' | 'saving' | 'saved' | 'skipped'>('idle');
@@ -57,14 +61,14 @@ export default function ReadingPlayerPage() {
   }, []);
 
   useEffect(() => {
-    if (!test || submitted) return;
+    if (!test || submitted || mode !== 'mock') return;
     if (timeLeft <= 0) {
       doSubmit();
       return;
     }
     const t = setTimeout(() => setTimeLeft((s) => s - 1), 1000);
     return () => clearTimeout(t);
-  }, [timeLeft, submitted, test, doSubmit]);
+  }, [timeLeft, submitted, test, doSubmit, mode]);
 
   const handleSubmit = () => {
     const missing = total - answeredCount;
@@ -99,11 +103,12 @@ export default function ReadingPlayerPage() {
         total,
         durationSec,
         answers,
+        mode,
       }),
     })
       .then(() => setSaveState('saved'))
       .catch(() => setSaveState('skipped'));
-  }, [submitted, test, session, saveState, answers, total]);
+  }, [submitted, test, session, saveState, answers, total, mode]);
 
   const scrollToQ = (num: number) => {
     document.getElementById(`rq-${num}`)?.scrollIntoView({ behavior: 'smooth', block: 'center' });
@@ -275,8 +280,53 @@ export default function ReadingPlayerPage() {
     );
   }
 
+  // ------------------------------ MODE PICKER ------------------------------
+  if (mode === 'pick') {
+    return (
+      <main className="page">
+        <div className="nav-top">
+          <Link href="/reading" className="back">
+            <ArrowLeftIcon width={16} height={16} />
+            Danh sách đề
+          </Link>
+        </div>
+        <h1 className="brand" style={{ fontSize: '1.9rem' }}>
+          {test.title} <span className="hl">· Reading</span>
+        </h1>
+        <p className="lead">
+          4 bài đọc · {total} câu hỏi · {TOTAL_MIN} phút như thi thật.
+        </p>
+        <div className="mode-cards">
+          <button className="card lift mode-card" onClick={() => setMode('practice')}>
+            <span className="icon-badge">
+              <BookOpenIcon width={24} height={24} strokeWidth={1.6} />
+            </span>
+            <strong>Luyện tập</strong>
+            <span className="chip">Đọc từng bài thoải mái</span>
+            <p>
+              Trả lời từng Part rồi bấm Kiểm tra để xem đúng/sai ngay. Không giới hạn
+              thời gian, đọc kỹ từng đoạn văn.
+            </p>
+          </button>
+          <button className="card lift mode-card" onClick={() => setMode('mock')}>
+            <span className="icon-badge">
+              <FlagIcon width={24} height={24} strokeWidth={1.6} />
+            </span>
+            <strong>Thi thử</strong>
+            <span className="chip accent">Đúng {TOTAL_MIN} phút như thi thật</span>
+            <p>
+              Làm cả 4 bài một mạch, hết giờ tự động nộp — không xem đáp án trước khi
+              nộp bài.
+            </p>
+          </button>
+        </div>
+      </main>
+    );
+  }
+
   // ------------------------------ DOING ------------------------------
   const active = test.parts[part];
+  const partChecked = mode === 'practice' && !!checkedParts[part];
 
   return (
     <main className="page">
@@ -296,16 +346,21 @@ export default function ReadingPlayerPage() {
             <ArrowLeftIcon width={16} height={16} />
             Danh sách đề
           </Link>
-          <span className={`timer-pill${timeLeft < 300 ? ' danger' : ''}`}>
-            <ClockIcon width={17} height={17} />
-            {fmtTime(timeLeft)}
-          </span>
+          {mode === 'mock' && (
+            <span className={`timer-pill${timeLeft < 300 ? ' danger' : ''}`}>
+              <ClockIcon width={17} height={17} />
+              {fmtTime(timeLeft)}
+            </span>
+          )}
+          {mode === 'practice' && (
+            <span className="chip">Luyện tập</span>
+          )}
         </div>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 10 }}>
           <strong style={{ fontSize: '1.1rem', fontWeight: 800 }}>{test.title}</strong>
           <button className="btn primary" onClick={handleSubmit}>
             <CheckIcon width={16} height={16} />
-            Nộp bài ({answeredCount}/{total})
+            {mode === 'mock' ? `Nộp bài (${answeredCount}/${total})` : `Hoàn thành (${answeredCount}/${total})`}
           </button>
         </div>
         {paletteButtons('palette palette-inbar', { marginTop: 10 })}
@@ -341,27 +396,69 @@ export default function ReadingPlayerPage() {
               {active.questions.map((q, qi) => {
                 const num = qNum(part, qi);
                 const chosen = answers[num];
+                const correct = chosen === q.answer;
                 return (
                   <div key={num} id={`rq-${num}`} className="card" style={{ marginBottom: 10, padding: '14px 16px', scrollMarginTop: 210 }}>
-                    <p style={{ margin: '0 0 8px', fontWeight: 600, fontSize: '0.95rem' }}>
-                      <span style={{ color: 'var(--accent-strong)' }}>{num}. </span>
-                      {q.q}
+                    <p style={{ margin: '0 0 8px', fontWeight: 600, fontSize: '0.95rem', display: 'flex', alignItems: 'flex-start', gap: 7 }}>
+                      <span style={{ color: 'var(--accent-strong)', flexShrink: 0 }}>{num}.</span>
+                      <span style={{ flex: 1 }}>{q.q}</span>
+                      {partChecked && (
+                        <span
+                          className="chip"
+                          style={correct
+                            ? { background: 'var(--correct-soft)', color: 'var(--correct)' }
+                            : { background: 'var(--wrong-soft)', color: 'var(--wrong)' }}
+                        >
+                          {correct
+                            ? <><CheckCircleIcon width={12} height={12} /> Đúng</>
+                            : <><XCircleIcon width={12} height={12} /> Sai</>}
+                        </span>
+                      )}
                     </p>
                     <div style={{ display: 'grid', gap: 6 }}>
-                      {q.options.map((opt, oi) => (
-                        <button
-                          key={oi}
-                          className={`opt-card${chosen === oi ? ' selected' : ''}`}
-                          onClick={() => setAnswers((a) => ({ ...a, [num]: oi }))}
-                        >
-                          <span className="letter">{LETTERS[oi]}</span>
-                          <span>{opt}</span>
-                        </button>
-                      ))}
+                      {q.options.map((opt, oi) => {
+                        if (partChecked) {
+                          const isAnswer = oi === q.answer;
+                          const isChosen = oi === chosen;
+                          const cls = `opt-card${isAnswer ? ' correct' : ''}${!isAnswer && isChosen ? ' wrong-pick' : ''}`;
+                          return (
+                            <div key={oi} className={cls} style={{ cursor: 'default' }}>
+                              <span className="letter">{LETTERS[oi]}</span>
+                              <span>{opt}</span>
+                              {isAnswer && (
+                                <span style={{ marginLeft: 'auto', fontSize: '0.78rem', color: 'var(--correct)', fontWeight: 700, display: 'inline-flex', alignItems: 'center', gap: 5 }}>
+                                  <CheckIcon width={13} height={13} />
+                                  đáp án đúng
+                                </span>
+                              )}
+                            </div>
+                          );
+                        }
+                        return (
+                          <button
+                            key={oi}
+                            className={`opt-card${chosen === oi ? ' selected' : ''}`}
+                            onClick={() => setAnswers((a) => ({ ...a, [num]: oi }))}
+                          >
+                            <span className="letter">{LETTERS[oi]}</span>
+                            <span>{opt}</span>
+                          </button>
+                        );
+                      })}
                     </div>
                   </div>
                 );
               })}
+              {mode === 'practice' && !partChecked && (
+                <button
+                  className="btn"
+                  style={{ marginTop: 4 }}
+                  onClick={() => setCheckedParts((c) => ({ ...c, [part]: true }))}
+                >
+                  <CheckIcon width={16} height={16} />
+                  Kiểm tra Part {part + 1}
+                </button>
+              )}
             </div>
           </div>
         </div>
@@ -374,7 +471,7 @@ export default function ReadingPlayerPage() {
             {paletteButtons('palette palette-vertical')}
             <button className="btn primary" onClick={handleSubmit} style={{ width: '100%', marginTop: 14 }}>
               <CheckIcon width={16} height={16} />
-              Nộp bài
+              {mode === 'mock' ? 'Nộp bài' : 'Hoàn thành'}
             </button>
           </div>
         </aside>

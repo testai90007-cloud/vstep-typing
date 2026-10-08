@@ -49,13 +49,9 @@ export default function ListeningListPage() {
           Trang chủ
         </Link>
       </div>
-      <h1 className="brand" style={{ fontSize: '2.2rem' }}>
-        Luyện <span className="hl">Listening</span>
-      </h1>
-      <p className="lead">
-        Nghe từng đoạn, chọn đáp án A/B/C/D — có bấm giờ, chấm điểm tự động và xem
-        lại transcript sau khi nộp bài.
-      </p>
+      <p className="page-eyebrow">03 — Luyện Nghe</p>
+      <h1 className="page-title">Chọn đề nghe</h1>
+      <p className="page-sub">Nghe từng đoạn, chọn đáp án A/B/C/D — có bấm giờ, chấm điểm tự động và xem lại transcript sau khi nộp bài.</p>
 
       <ExamFormatCard
         icon={SpeakerWaveIcon}
@@ -65,29 +61,14 @@ export default function ListeningListPage() {
           { value: '1 lần', label: 'mỗi đoạn audio' },
         ]}
         parts={[
-          {
-            name: 'Part 1 · Thông báo ngắn',
-            time: '≈ 10 phút',
-            items: '8 câu',
-            desc: 'Nghe 8 đoạn thông báo, hướng dẫn hoặc trao đổi ngắn — mỗi đoạn 1 câu hỏi.',
-          },
-          {
-            name: 'Part 2 · Hội thoại',
-            time: '≈ 15 phút',
-            items: '12 câu',
-            desc: 'Nghe 3 đoạn hội thoại dài về chủ đề quen thuộc — mỗi đoạn 4 câu hỏi.',
-          },
-          {
-            name: 'Part 3 · Bài nói / Bài giảng',
-            time: '≈ 15 phút',
-            items: '15 câu',
-            desc: 'Nghe 3 bài nói, bài giảng hoặc thuyết trình — mỗi bài 5 câu hỏi.',
-          },
+          { name: 'Part 1 · Thông báo ngắn', minutes: 10, time: '≈10\'', items: '8 câu' },
+          { name: 'Part 2 · Hội thoại', minutes: 15, time: '≈15\'', items: '12 câu' },
+          { name: 'Part 3 · Bài nói / Bài giảng', minutes: 15, time: '≈15\'', items: '15 câu' },
         ]}
         rules={[
-          'Mỗi đoạn audio chỉ được nghe ĐÚNG 1 lần trong phòng thi.',
-          'Tranh thủ đọc trước câu hỏi và đáp án khi audio chưa phát.',
-          'Không bỏ trống câu nào — đoán cũng phải chọn một đáp án.',
+          'Mỗi audio chỉ nghe 1 lần',
+          'Đọc trước câu hỏi khi chờ audio',
+          'Không bỏ trống — đoán cũng chọn',
         ]}
       />
 

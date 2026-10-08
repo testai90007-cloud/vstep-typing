@@ -365,13 +365,12 @@ export default function CompetencyPage() {
       <div className="nav-top">
         <Link href="/progress" className="back">
           <ArrowLeftIcon width={16} height={16} />
-          Tiến độ học tập
+          Tiến độ
         </Link>
       </div>
-      <h1 className="brand" style={{ fontSize: '2.2rem' }}>
-        Hồ sơ <span className="hl">năng lực</span>
-      </h1>
-      <p className="lead" style={{ marginTop: 10 }}>
+      <p className="page-eyebrow">06 — Hồ sơ</p>
+      <h1 className="page-title">Hồ sơ năng lực</h1>
+      <p className="page-sub">
         Tổng hợp điểm trung bình từng kỹ năng qua tất cả buổi luyện, đặt cạnh ngưỡng
         điểm mục tiêu — để bạn thấy rõ kỹ năng nào đang vững, kỹ năng nào cần đầu tư thêm.
       </p>

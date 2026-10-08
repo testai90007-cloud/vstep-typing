@@ -9,11 +9,13 @@ import { useParams } from 'next/navigation';
 import { useSession } from 'next-auth/react';
 import {
   ArrowLeftIcon,
+  BookOpenIcon,
   ClockIcon,
   CheckIcon,
   CheckCircleIcon,
   XCircleIcon,
   ChartBarIcon,
+  FlagIcon,
   SpeakerWaveIcon,
 } from '@heroicons/react/24/outline';
 import { getListeningTest, flattenQuestions, scoreParts } from '@/lib/listening';
@@ -54,6 +56,9 @@ export default function ListeningPlayerPage() {
   const [answers, setAnswers] = useState<Record<number, number>>({});
   const [timeLeft, setTimeLeft] = useState(0);
   const [submitted, setSubmitted] = useState(false);
+  const [mode, setMode] = useState<'pick' | 'practice' | 'mock'>('pick');
+  /** practice mode: recordings whose answers were checked immediately */
+  const [checked, setChecked] = useState<Record<string, boolean>>({});
   const [saveState, setSaveState] = useState<'idle' | 'saving' | 'saved' | 'skipped'>('idle');
   const submittedRef = useRef(false);
   const startRef = useRef<number>(0);
@@ -72,14 +77,14 @@ export default function ListeningPlayerPage() {
   }, []);
 
   useEffect(() => {
-    if (!test || submitted) return;
+    if (!test || submitted || mode !== 'mock') return;
     if (timeLeft <= 0) {
       doSubmit();
       return;
     }
     const t = setTimeout(() => setTimeLeft((s) => s - 1), 1000);
     return () => clearTimeout(t);
-  }, [timeLeft, submitted, test, doSubmit]);
+  }, [timeLeft, submitted, test, doSubmit, mode]);
 
   const answeredCount = Object.keys(answers).length;
   const total = questions.length;
@@ -114,11 +119,12 @@ export default function ListeningPlayerPage() {
         total,
         durationSec,
         answers,
+        mode,
       }),
     })
       .then(() => setSaveState('saved'))
       .catch(() => setSaveState('skipped'));
-  }, [submitted, test, session, saveState, questions, answers, total]);
+  }, [submitted, test, session, saveState, questions, answers, total, mode]);
 
   const scrollToQ = (num: number) => {
     document.getElementById(`q-${num}`)?.scrollIntoView({ behavior: 'smooth', block: 'center' });
@@ -280,6 +286,49 @@ export default function ListeningPlayerPage() {
     );
   }
 
+  if (mode === 'pick') {
+    return (
+      <main className="page">
+        <div className="nav-top">
+          <Link href="/listening" className="back">
+            <ArrowLeftIcon width={16} height={16} />
+            Danh sách đề
+          </Link>
+        </div>
+        <h1 className="brand" style={{ fontSize: '1.9rem' }}>
+          {test.title} <span className="hl">· Listening</span>
+        </h1>
+        <p className="lead">
+          {total} câu hỏi · {test.parts.length} parts · {test.durationMin} phút như thi thật.
+        </p>
+        <div className="mode-cards">
+          <button className="card lift mode-card" onClick={() => setMode('practice')}>
+            <span className="icon-badge">
+              <BookOpenIcon width={24} height={24} strokeWidth={1.6} />
+            </span>
+            <strong>Luyện tập</strong>
+            <span className="chip">Nghe từng bài thoải mái</span>
+            <p>
+              Trả lời từng bài nghe rồi bấm Kiểm tra để xem đúng/sai và transcript ngay.
+              Nghe lại bao nhiêu lần cũng được.
+            </p>
+          </button>
+          <button className="card lift mode-card" onClick={() => setMode('mock')}>
+            <span className="icon-badge">
+              <FlagIcon width={24} height={24} strokeWidth={1.6} />
+            </span>
+            <strong>Thi thử</strong>
+            <span className="chip accent">Đúng {test.durationMin} phút như thi thật</span>
+            <p>
+              Làm cả đề một mạch, hết giờ tự động nộp — không xem đáp án hay transcript
+              trước khi nộp bài.
+            </p>
+          </button>
+        </div>
+      </main>
+    );
+  }
+
   return (
     <main className="page">
       <div
@@ -298,16 +347,21 @@ export default function ListeningPlayerPage() {
             <ArrowLeftIcon width={16} height={16} />
             Danh sách đề
           </Link>
-          <span className={`timer-pill${timeLeft < 60 ? ' danger' : ''}`}>
-            <ClockIcon width={17} height={17} />
-            {fmtTime(timeLeft)}
-          </span>
+          {mode === 'mock' && (
+            <span className={`timer-pill${timeLeft < 60 ? ' danger' : ''}`}>
+              <ClockIcon width={17} height={17} />
+              {fmtTime(timeLeft)}
+            </span>
+          )}
+          {mode === 'practice' && (
+            <span className="chip">Luyện tập</span>
+          )}
         </div>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 10 }}>
           <strong style={{ fontSize: '1.1rem', fontWeight: 800 }}>{test.title}</strong>
           <button className="btn primary" onClick={handleSubmit}>
             <CheckIcon width={16} height={16} />
-            Nộp bài ({answeredCount}/{total})
+            {mode === 'mock' ? `Nộp bài (${answeredCount}/${total})` : `Hoàn thành (${answeredCount}/${total})`}
           </button>
         </div>
         {/* Question palette — in the top bar on mobile, sidebar on desktop */}
@@ -325,7 +379,9 @@ export default function ListeningPlayerPage() {
               {part.hint}
             </span>
           </h2>
-          {part.recordings.map((rec) => (
+          {part.recordings.map((rec) => {
+            const recChecked = mode === 'practice' && !!checked[rec.id];
+            return (
             <div key={rec.id} className="card" style={{ marginTop: 12, padding: '18px 20px' }}>
               <p style={{ margin: '0 0 8px', fontWeight: 700, display: 'flex', alignItems: 'center', gap: 8 }}>
                 <SpeakerWaveIcon width={17} height={17} style={{ color: 'var(--muted)' }} />
@@ -335,29 +391,82 @@ export default function ListeningPlayerPage() {
               {rec.questions.map((q, qi) => {
                 const num = numOf.get(`${rec.id}:${qi}`) ?? 0;
                 const chosen = answers[num];
+                const correct = chosen === q.answer;
                 return (
                   <div key={num} id={`q-${num}`} style={{ marginTop: 14, scrollMarginTop: 210 }}>
-                    <p style={{ margin: '0 0 8px', fontWeight: 600, fontSize: '0.95rem' }}>
-                      <span style={{ color: 'var(--accent-strong)' }}>{num}. </span>
-                      {q.q}
+                    <p style={{ margin: '0 0 8px', fontWeight: 600, fontSize: '0.95rem', display: 'flex', alignItems: 'flex-start', gap: 7 }}>
+                      <span style={{ color: 'var(--accent-strong)', flexShrink: 0 }}>{num}.</span>
+                      <span style={{ flex: 1 }}>{q.q}</span>
+                      {recChecked && (
+                        <span
+                          className="chip"
+                          style={correct
+                            ? { background: 'var(--correct-soft)', color: 'var(--correct)' }
+                            : { background: 'var(--wrong-soft)', color: 'var(--wrong)' }}
+                        >
+                          {correct
+                            ? <><CheckCircleIcon width={12} height={12} /> Đúng</>
+                            : <><XCircleIcon width={12} height={12} /> Sai</>}
+                        </span>
+                      )}
                     </p>
                     <div style={{ display: 'grid', gap: 6 }}>
-                      {q.options.map((opt, oi) => (
-                        <button
-                          key={oi}
-                          className={`opt-card${chosen === oi ? ' selected' : ''}`}
-                          onClick={() => setAnswers((a) => ({ ...a, [num]: oi }))}
-                        >
-                          <span className="letter">{LETTERS[oi]}</span>
-                          <span>{opt}</span>
-                        </button>
-                      ))}
+                      {q.options.map((opt, oi) => {
+                        if (recChecked) {
+                          const isAnswer = oi === q.answer;
+                          const isChosen = oi === chosen;
+                          const cls = `opt-card${isAnswer ? ' correct' : ''}${!isAnswer && isChosen ? ' wrong-pick' : ''}`;
+                          return (
+                            <div key={oi} className={cls} style={{ cursor: 'default' }}>
+                              <span className="letter">{LETTERS[oi]}</span>
+                              <span>{opt}</span>
+                              {isAnswer && (
+                                <span style={{ marginLeft: 'auto', fontSize: '0.78rem', color: 'var(--correct)', fontWeight: 700, display: 'inline-flex', alignItems: 'center', gap: 5 }}>
+                                  <CheckIcon width={13} height={13} />
+                                  đáp án đúng
+                                </span>
+                              )}
+                            </div>
+                          );
+                        }
+                        return (
+                          <button
+                            key={oi}
+                            className={`opt-card${chosen === oi ? ' selected' : ''}`}
+                            onClick={() => setAnswers((a) => ({ ...a, [num]: oi }))}
+                          >
+                            <span className="letter">{LETTERS[oi]}</span>
+                            <span>{opt}</span>
+                          </button>
+                        );
+                      })}
                     </div>
                   </div>
                 );
               })}
+              {mode === 'practice' && !recChecked && (
+                <button
+                  className="btn"
+                  style={{ marginTop: 14 }}
+                  onClick={() => setChecked((c) => ({ ...c, [rec.id]: true }))}
+                >
+                  <CheckIcon width={16} height={16} />
+                  Kiểm tra bài này
+                </button>
+              )}
+              {mode === 'practice' && (
+                <details style={{ marginTop: 10 }} open={recChecked || undefined}>
+                  <summary style={{ cursor: 'pointer', fontSize: '0.88rem', fontWeight: 600 }}>
+                    Transcript
+                  </summary>
+                  <p className="reference" style={{ fontSize: '0.95rem', marginTop: 8 }}>
+                    {rec.script}
+                  </p>
+                </details>
+              )}
             </div>
-          ))}
+            );
+          })}
         </section>
       ))}
 
@@ -367,7 +476,7 @@ export default function ListeningPlayerPage() {
         </p>
         <button className="btn primary" onClick={handleSubmit} style={{ fontSize: '1rem', padding: '12px 28px' }}>
           <CheckIcon width={18} height={18} />
-          Nộp bài và chấm điểm
+          {mode === 'mock' ? 'Nộp bài và chấm điểm' : 'Hoàn thành & xem kết quả'}
         </button>
       </div>
         </div>
@@ -380,7 +489,7 @@ export default function ListeningPlayerPage() {
             {paletteButtons('palette palette-vertical')}
             <button className="btn primary" onClick={handleSubmit} style={{ width: '100%', marginTop: 14 }}>
               <CheckIcon width={16} height={16} />
-              Nộp bài
+              {mode === 'mock' ? 'Nộp bài' : 'Hoàn thành'}
             </button>
           </div>
         </aside>
