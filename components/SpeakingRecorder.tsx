@@ -16,7 +16,6 @@ import {
   KeyIcon,
   MicrophoneIcon,
   SparklesIcon,
-  StopIcon,
 } from '@heroicons/react/24/outline';
 import { getAiSettings } from '@/lib/aiKey';
 import { SPEAKING_CRITERIA } from '@/lib/speaking';
@@ -83,6 +82,8 @@ export function RecorderPanel({
   const cancelledRef = useRef(false);
   /** remount the voice pill to force it back to idle (e.g. our mic request failed) */
   const [pillKey, setPillKey] = useState(0);
+  /** examMode: bump to auto-begin the voice pill when recording auto-starts */
+  const [autoBegin, setAutoBegin] = useState(0);
   const isDark = useIsDark();
   /** examMode: once an error happens, stop auto-advancing (avoid record loops) */
   const examBlockedRef = useRef(false);
@@ -134,7 +135,11 @@ export function RecorderPanel({
   useEffect(() => {
     if (!examMode || phase !== 'ready' || examBlockedRef.current) return;
     const t = setTimeout(() => {
-      void startRecording();
+      void startRecording().then((ok) => {
+        // the voice pill mounts on phase='recording'; this signal makes it
+        // begin listening by itself (no imperative API on the pill)
+        if (ok) setAutoBegin((k) => k + 1);
+      });
     }, 1500);
     return () => clearTimeout(t);
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -404,16 +409,29 @@ export function RecorderPanel({
       )}
       {phase === 'recording' && examMode && (
         <div className="card-soft" style={{ textAlign: 'center' }}>
-          <div style={{ fontSize: '0.85rem', color: 'var(--muted)', display: 'inline-flex', alignItems: 'center' }}>
-            <span className="rec-dot" /> Đang ghi âm
+          <div style={{ fontSize: '0.85rem', color: 'var(--muted)', display: 'inline-flex', alignItems: 'center', gap: 7 }}>
+            <span className="rec-dot" /> Đang ghi âm — còn {fmt(talkLeft)}
           </div>
-          <div style={{ fontSize: '2.6rem', fontWeight: 800, fontVariantNumeric: 'tabular-nums' }}>{fmt(talkLeft)}</div>
-          <div className="btn-row" style={{ justifyContent: 'center', marginTop: 10 }}>
-            <button className="btn primary" onClick={stopRecording}>
-              <StopIcon width={16} height={16} />
-              Dừng & chấm điểm
-            </button>
+          <div style={{ display: 'flex', justifyContent: 'center', margin: '14px 0 4px' }}>
+            <VoicePill
+              key={pillKey}
+              size={46}
+              background={pillColors.background}
+              accentColor={pillColors.accentColor}
+              iconColor={pillColors.iconColor}
+              reactive="mic"
+              showTime
+              waveform
+              slideToCancel={false}
+              autoBeginSignal={autoBegin}
+              ariaLabel="Ghi âm bài nói"
+              onStart={handlePillStart}
+              onStop={({ reason }) => handlePillStop(reason)}
+            />
           </div>
+          <p style={{ fontSize: '0.8rem', color: 'var(--faint)', margin: '8px 0 0' }}>
+            Nhấn để dừng & nộp bài sớm
+          </p>
         </div>
       )}
       {phase === 'uploading' && (

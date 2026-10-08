@@ -44,6 +44,7 @@
   touch-action: none;
   transition:
     transform 160ms var(--vp-ease-out),
+    margin-left var(--vp-open) var(--vp-ease-out),
     color 150ms ease;
 }
 
@@ -56,6 +57,9 @@
 .voice-pill[data-state='listening'] {
   z-index: 1;
   color: var(--vp-accent);
+  /* The capsule grows leftward from the button; offset by its full extension
+     so the open capsule stays visually centered in its container. */
+  margin-left: calc(var(--vp-reach) + var(--vp-extra));
 }
 
 .voice-pill[data-pressed] {

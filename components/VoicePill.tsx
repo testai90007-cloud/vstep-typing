@@ -188,6 +188,11 @@ export interface VoicePillProps {
   onStart?: (info: { source: string }) => void;
   onStop?: (info: { reason: string; duration: number }) => void;
   className?: string;
+  /**
+   * Increment to programmatically begin listening (e.g. exam auto-start).
+   * The pill begins on mount/change when this is truthy and changing.
+   */
+  autoBeginSignal?: number;
 }
 
 export default function VoicePill({
@@ -215,6 +220,7 @@ export default function VoicePill({
   onStart,
   onStop,
   className = '',
+  autoBeginSignal = 0,
 }: VoicePillProps) {
   const [listening, setListening] = useState(false);
   const [pressed, setPressed] = useState(false);
@@ -440,6 +446,12 @@ export default function VoicePill({
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // Programmatic start (e.g. exam auto-start). begin() is a no-op if already listening.
+  useEffect(() => {
+    if (autoBeginSignal) begin('auto');
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [autoBeginSignal]);
 
   const radius = shape === 'rounded' ? Math.round(size * 0.29) : size / 2;
   const hit = Math.max(0, Math.min(10, (44 - size) / 2));
