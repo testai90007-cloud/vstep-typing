@@ -100,9 +100,14 @@ function MenuItem({
       const marqueeContent = marqueeInnerRef.current.querySelector('.marquee__part');
       if (!marqueeContent) return;
       const contentWidth = (marqueeContent as HTMLElement).offsetWidth;
+      // Guard: when the marquee is hidden (e.g. prefers-reduced-motion sets
+      // display:none), offsetWidth is 0 and innerWidth/0 = Infinity would make
+      // [...Array(Infinity)] throw RangeError and crash the page.
+      if (!contentWidth) return;
       const viewportWidth = window.innerWidth;
       const needed = Math.ceil(viewportWidth / contentWidth) + 2;
-      setRepetitions(Math.max(4, needed));
+      if (!Number.isFinite(needed)) return;
+      setRepetitions(Math.min(24, Math.max(4, needed)));
     };
 
     calculateRepetitions();
