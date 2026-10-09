@@ -1,11 +1,20 @@
 'use client';
 
+import { useRef } from 'react';
 import Link from 'next/link';
 import { ArrowLeftIcon, MicrophoneIcon } from '@heroicons/react/24/outline';
 import ExamFormatCard from '@/components/ExamFormatCard';
 import { SPEAKING_TESTS } from '@/lib/speaking-tests';
+import TestRangePanel, { useTestRangeFilter } from '@/components/TestRangePanel';
 
 export default function SpeakingPage() {
+  const { rangeKey, setRangeKey, active, visible, nums } = useTestRangeFilter(SPEAKING_TESTS);
+  const gridRef = useRef<HTMLDivElement>(null);
+  const handleSelect = (key: string | null) => {
+    setRangeKey(key);
+    gridRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  };
+
   return (
     <main className="page">
       <div className="nav-top">
@@ -47,13 +56,26 @@ export default function SpeakingPage() {
         302 đề thi thử — mỗi đề gồm đủ Part 1 (6 câu hỏi), Part 2 (tình huống + 3 lựa
         chọn) và Part 3 (chủ đề + mind-map + câu hỏi mở rộng), đúng 12 phút như thi thật.
       </p>
-      <div className="test-grid">
-        {SPEAKING_TESTS.map((t) => (
+      <div className="test-grid" ref={gridRef} style={{ scrollMarginTop: 90 }}>
+        {active && (
+          <p className="range-note" style={{ gridColumn: '1 / -1' }}>
+            Đang hiện đề {active.label} ({visible.length} đề) ·{' '}
+            <button type="button" onClick={() => setRangeKey(null)}>Hiện tất cả</button>
+          </p>
+        )}
+        {visible.map((t) => (
           <Link key={t.id} href={`/speaking/de-thi/${t.id}`} className="test-cell">
             <strong><span className="de-word">Đề</span>{t.title.replace(/^Đề\s+/, '')}</strong>
           </Link>
         ))}
       </div>
+
+      <TestRangePanel
+        nums={nums}
+        total={SPEAKING_TESTS.length}
+        activeKey={rangeKey}
+        onSelect={handleSelect}
+      />
     </main>
   );
 }

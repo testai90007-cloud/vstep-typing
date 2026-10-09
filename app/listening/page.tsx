@@ -2,7 +2,7 @@
 
 // Listening test list: /listening
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import { useSession } from 'next-auth/react';
 import {
@@ -12,6 +12,7 @@ import {
 } from '@heroicons/react/24/outline';
 import { LISTENING_TESTS } from '@/lib/listening';
 import ExamFormatCard from '@/components/ExamFormatCard';
+import TestRangePanel, { useTestRangeFilter } from '@/components/TestRangePanel';
 
 interface ListeningSession {
   test_id: string;
@@ -23,6 +24,12 @@ interface ListeningSession {
 export default function ListeningListPage() {
   const { data: session } = useSession();
   const [best, setBest] = useState<Record<string, number>>({});
+  const { rangeKey, setRangeKey, active, visible, nums } = useTestRangeFilter(LISTENING_TESTS);
+  const gridRef = useRef<HTMLDivElement>(null);
+  const handleSelect = (key: string | null) => {
+    setRangeKey(key);
+    gridRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  };
 
   useEffect(() => {
     if (!session?.user) return;
@@ -82,8 +89,14 @@ export default function ListeningListPage() {
         56 đề thi thử — mỗi đề 35 câu, đúng 40 phút như thi thật. Đề demo để làm quen
         giao diện trước.
       </p>
-      <div className="test-grid">
-        {LISTENING_TESTS.map((t) => (
+      <div className="test-grid" ref={gridRef} style={{ scrollMarginTop: 90 }}>
+        {active && (
+          <p className="range-note" style={{ gridColumn: '1 / -1' }}>
+            Đang hiện đề {active.label} ({visible.length} đề) ·{' '}
+            <button type="button" onClick={() => setRangeKey(null)}>Hiện tất cả</button>
+          </p>
+        )}
+        {visible.map((t) => (
           <Link key={t.id} href={`/listening/${t.id}`} className="test-cell">
             <strong>
               {t.demo ? 'Demo' : (<><span className="de-word">Đề</span>{t.title.replace(/^Đề\s+/, '')}</>)}
@@ -102,6 +115,13 @@ export default function ListeningListPage() {
           </Link>
         ))}
       </div>
+
+      <TestRangePanel
+        nums={nums}
+        total={LISTENING_TESTS.length}
+        activeKey={rangeKey}
+        onSelect={handleSelect}
+      />
     </main>
   );
 }

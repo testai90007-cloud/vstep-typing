@@ -2,12 +2,21 @@
 
 // Reading test list: /reading
 
+import { useRef } from 'react';
 import Link from 'next/link';
 import { ArrowLeftIcon, BookOpenIcon } from '@heroicons/react/24/outline';
 import ExamFormatCard from '@/components/ExamFormatCard';
 import { READING_TESTS } from '@/lib/reading-tests';
+import TestRangePanel, { useTestRangeFilter } from '@/components/TestRangePanel';
 
 export default function ReadingListPage() {
+  const { rangeKey, setRangeKey, active, visible, nums } = useTestRangeFilter(READING_TESTS);
+  const gridRef = useRef<HTMLDivElement>(null);
+  const handleSelect = (key: string | null) => {
+    setRangeKey(key);
+    gridRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  };
+
   return (
     <main className="page">
       <div className="nav-top">
@@ -49,13 +58,26 @@ export default function ReadingListPage() {
       <p className="lead" style={{ margin: '-4px 0 14px', fontSize: '0.9rem' }}>
         200 đề thi thử — mỗi đề gồm 4 bài đọc × 10 câu hỏi, đúng 60 phút như thi thật.
       </p>
-      <div className="test-grid">
-        {READING_TESTS.map((t) => (
+      <div className="test-grid" ref={gridRef} style={{ scrollMarginTop: 90 }}>
+        {active && (
+          <p className="range-note" style={{ gridColumn: '1 / -1' }}>
+            Đang hiện đề {active.label} ({visible.length} đề) ·{' '}
+            <button type="button" onClick={() => setRangeKey(null)}>Hiện tất cả</button>
+          </p>
+        )}
+        {visible.map((t) => (
           <Link key={t.id} href={`/reading/${t.id}`} className="test-cell">
             <strong><span className="de-word">Đề</span>{t.title.replace(/^Đề\s+/, '')}</strong>
           </Link>
         ))}
       </div>
+
+      <TestRangePanel
+        nums={nums}
+        total={READING_TESTS.length}
+        activeKey={rangeKey}
+        onSelect={handleSelect}
+      />
     </main>
   );
 }

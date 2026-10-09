@@ -1,5 +1,6 @@
 'use client';
 
+import { useRef } from 'react';
 import Link from 'next/link';
 import {
   ArrowLeftIcon,
@@ -11,10 +12,17 @@ import {
 import { TEMPLATES } from '@/lib/templates';
 import { WRITING_TESTS } from '@/lib/writing-tests';
 import ExamFormatCard from '@/components/ExamFormatCard';
+import TestRangePanel, { useTestRangeFilter } from '@/components/TestRangePanel';
 
 export default function WritingIndexPage() {
   const task2 = TEMPLATES.filter((t) => t.group === 'task2');
   const task1 = TEMPLATES.filter((t) => t.group === 'task1');
+  const { rangeKey, setRangeKey, active, visible, nums } = useTestRangeFilter(WRITING_TESTS);
+  const gridRef = useRef<HTMLDivElement>(null);
+  const handleSelect = (key: string | null) => {
+    setRangeKey(key);
+    gridRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  };
 
   const renderGroup = (
     title: string,
@@ -91,8 +99,14 @@ export default function WritingIndexPage() {
         Chọn một đề bên dưới để bắt đầu — mỗi đề gồm Task 1 (thư/email) và Task 2
         (bài luận), đúng 60 phút như thi thật.
       </p>
-      <div className="test-grid">
-        {WRITING_TESTS.map((t) => (
+      <div className="test-grid" ref={gridRef} style={{ scrollMarginTop: 90 }}>
+        {active && (
+          <p className="range-note" style={{ gridColumn: '1 / -1' }}>
+            Đang hiện đề {active.label} ({visible.length} đề) ·{' '}
+            <button type="button" onClick={() => setRangeKey(null)}>Hiện tất cả</button>
+          </p>
+        )}
+        {visible.map((t) => (
           <Link
             key={t.id}
             href={`/writing/de-thi/${t.id}`}
@@ -105,6 +119,13 @@ export default function WritingIndexPage() {
 
       {renderGroup('Task 2 · Bài luận', PencilSquareIcon, task2)}
       {renderGroup('Task 1 · Thư / Email', EnvelopeIcon, task1)}
+
+      <TestRangePanel
+        nums={nums}
+        total={WRITING_TESTS.length}
+        activeKey={rangeKey}
+        onSelect={handleSelect}
+      />
     </main>
   );
 }
