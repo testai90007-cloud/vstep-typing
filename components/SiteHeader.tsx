@@ -123,7 +123,6 @@ export default function SiteHeader() {
             <ShimmerButton
               onClick={() => signIn('google')}
               aria-label="Đăng nhập bằng Google"
-              background="var(--ink)"
             >
               <GoogleIcon />
               <span>Đăng nhập</span>
