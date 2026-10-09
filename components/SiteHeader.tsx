@@ -64,13 +64,11 @@ function GoogleIcon() {
 export default function SiteHeader() {
   const pathname = usePathname();
   const { data: session, status } = useSession();
-  // Homepage keeps the classic top bar. Inner pages (except exam doing
-  // pages, which keep the header to avoid overlapping their sticky exam
-  // bars) use the floating Dock instead — the header stays rendered but
-  // hidden on desktop so mobile (where the dock is hidden) keeps it.
+  // Homepage keeps the classic top bar; every other page uses the floating
+  // Dock instead. The header stays rendered but hidden on desktop so mobile
+  // (where the dock is hidden) keeps it.
   const isHome = pathname === '/';
-  const isDoing = pathname.includes('/de-thi/');
-  const useDock = !isHome && !isDoing;
+  const useDock = !isHome;
 
   const headerBody = (withNav: boolean) => (
     <div className="site-header-inner">

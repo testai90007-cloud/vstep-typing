@@ -622,6 +622,11 @@ kbd {
   .site-header.inner-header {
     display: none;
   }
+  /* The writing doing-page's sticky Part switcher would sit under the
+     floating dock — lift it above the dock. */
+  .task-bottombar {
+    bottom: 96px;
+  }
 }
 .site-header-inner {
   width: min(1280px, calc(100% - 48px));
