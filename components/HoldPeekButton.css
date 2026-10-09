@@ -1,0 +1,51 @@
+/* HoldPeekButton — vanilla CSS companion (KokonutUI-style hold). */
+.hold-peek {
+  position: relative;
+  overflow: hidden;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  border: 1px solid var(--line);
+  background: var(--paper);
+  color: var(--ink);
+  border-radius: 999px;
+  padding: 9px 18px;
+  font: inherit;
+  font-size: 0.88rem;
+  font-weight: 600;
+  cursor: pointer;
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-touch-callout: none;
+  touch-action: none;
+  transition: border-color 0.15s ease;
+}
+
+.hold-peek:hover {
+  border-color: var(--faint);
+}
+
+.hold-peek:active {
+  transform: scale(0.98);
+}
+
+.hold-fill {
+  position: absolute;
+  inset: 0;
+  background: rgba(139, 92, 246, 0.16);
+  transform-origin: left center;
+  pointer-events: none;
+}
+
+html[data-theme='dark'] .hold-fill {
+  background: rgba(167, 139, 250, 0.18);
+}
+
+.hold-label {
+  position: relative;
+  z-index: 1;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  pointer-events: none;
+}

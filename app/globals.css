@@ -668,6 +668,20 @@ kbd {
 
 /* --- metrics ---------------------------------------------------------------- */
 .metric-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin-top: 16px; }
+/* meter-style metric card (used with the Meter component) */
+.metric-meter {
+  padding: 14px 16px;
+  border-radius: var(--radius-md);
+  background: var(--paper-soft);
+  border: 1px solid var(--line);
+}
+/* drill progress: row of mini animated checkboxes */
+.drill-progress {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px 14px;
+  margin-top: 10px;
+}
 .metric {
   padding: 14px 16px;
   border-radius: var(--radius-md);

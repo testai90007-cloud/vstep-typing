@@ -1,0 +1,62 @@
+/* SmoothTab — vanilla CSS companion (KokonutUI-style). */
+.smooth-tab {
+  display: inline-flex;
+  gap: 2px;
+  padding: 3px;
+  background: var(--paper-soft);
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  max-width: 100%;
+}
+
+.st-btn {
+  position: relative;
+  border: 0;
+  background: transparent;
+  padding: 8px 15px;
+  border-radius: 999px;
+  font: inherit;
+  font-size: 0.84rem;
+  font-weight: 600;
+  color: var(--muted);
+  cursor: pointer;
+  white-space: nowrap;
+  transition: color 0.15s ease;
+}
+
+.st-btn:hover:not(:disabled) {
+  color: var(--ink);
+}
+
+.st-btn.active {
+  color: var(--ink);
+}
+
+.st-btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.st-pill {
+  position: absolute;
+  inset: 0;
+  background: var(--paper);
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  box-shadow: var(--shadow);
+}
+
+.st-label {
+  position: relative;
+  z-index: 1;
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+}
+
+@media (max-width: 560px) {
+  .st-btn {
+    padding: 8px 11px;
+    font-size: 0.8rem;
+  }
+}

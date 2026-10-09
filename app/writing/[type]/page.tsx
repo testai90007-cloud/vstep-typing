@@ -31,6 +31,12 @@ import {
 } from '@heroicons/react/24/outline';
 import { TEMPLATES, getTemplate, wholeText, type WritingTemplate } from '@/lib/templates';
 import { getExample } from '@/lib/examples';
+import CountUp from '@/components/CountUp';
+import { SmoothTab } from '@/components/SmoothTab';
+import { StepIndicator, type StepState } from '@/components/StepIndicator';
+import { Meter } from '@/components/Meter';
+import { HoldPeekButton } from '@/components/HoldPeekButton';
+import { AnimCheckbox } from '@/components/AnimCheckbox';
 
 type Scope = 'whole' | 'sections';
 type Mode = 'follow' | 'memory';
@@ -463,14 +469,15 @@ export default function PracticePage() {
           </select>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
             <span style={{ color: 'var(--muted)', fontSize: '0.8rem', fontWeight: 700 }}>Phạm vi</span>
-            <div className="seg" role="group" aria-label="Chọn phạm vi luyện">
-              <button className={scope === 'whole' ? 'active' : ''} onClick={() => changeScope('whole')} disabled={exam}>
-                Toàn bài
-              </button>
-              <button className={scope === 'sections' ? 'active' : ''} onClick={() => changeScope('sections')} disabled={exam}>
-                Từng phần
-              </button>
-            </div>
+            <SmoothTab
+              ariaLabel="Chọn phạm vi luyện"
+              activeId={scope}
+              onChange={(id) => changeScope(id as Scope)}
+              tabs={[
+                { id: 'whole', label: 'Toàn bài', disabled: exam },
+                { id: 'sections', label: 'Từng phần', disabled: exam },
+              ]}
+            />
           </div>
         </div>
 
@@ -482,16 +489,15 @@ export default function PracticePage() {
             background: 'var(--paper-soft)', flexWrap: 'wrap',
           }}
         >
-          <div className="seg" role="group" aria-label="Chế độ luyện">
-            <button className={mode === 'follow' ? 'active' : ''} onClick={() => setMode('follow')} disabled={exam}>
-              <PencilSquareIcon width={15} height={15} />
-              Gõ theo mẫu
-            </button>
-            <button className={mode === 'memory' ? 'active' : ''} onClick={() => setMode('memory')} disabled={exam}>
-              <LightBulbIcon width={15} height={15} />
-              Tự nhớ
-            </button>
-          </div>
+          <SmoothTab
+            ariaLabel="Chế độ luyện"
+            activeId={mode}
+            onChange={(id) => setMode(id as Mode)}
+            tabs={[
+              { id: 'follow', label: 'Gõ theo mẫu', icon: <PencilSquareIcon width={15} height={15} />, disabled: exam },
+              { id: 'memory', label: 'Tự nhớ', icon: <LightBulbIcon width={15} height={15} />, disabled: exam },
+            ]}
+          />
           <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
             <button className={`btn${exam ? ' primary' : ''}`} onClick={toggleExam}>
               <FlagIcon width={16} height={16} />
@@ -600,14 +606,24 @@ export default function PracticePage() {
               </div>
 
               <div className="metric-grid">
-                <div className="metric"><strong>{a.accuracy}%</strong><span>Độ chính xác</span></div>
-                <div className="metric"><strong>{a.progress}%</strong><span>Tiến độ</span></div>
-                <div className="metric">
-                  <strong style={{ color: expired ? 'var(--wrong)' : undefined, display: 'inline-flex', alignItems: 'center', gap: 8 }}>
-                    <ClockIcon width={20} height={20} />
-                    {fmt(timeLeft)}
-                  </strong>
-                  <span>Đếm ngược toàn bài · bắt đầu khi gõ{expired ? ' · hết giờ' : ''}</span>
+                <div className="metric-meter">
+                  <Meter label="Độ chính xác" value={`${a.accuracy}%`} percent={a.accuracy} />
+                </div>
+                <div className="metric-meter">
+                  <Meter label="Tiến độ" value={`${a.progress}%`} percent={a.progress} />
+                </div>
+                <div className="metric-meter">
+                  <Meter
+                    label={`Đếm ngược toàn bài${expired ? ' · hết giờ' : ''}`}
+                    value={
+                      <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8, color: expired ? 'var(--wrong)' : undefined }}>
+                        <ClockIcon width={20} height={20} />
+                        {fmt(timeLeft)}
+                      </span>
+                    }
+                    percent={(timeLeft / (durationMin * 60)) * 100}
+                    tone={expired || timeLeft <= 60 ? 'danger' : 'accent'}
+                  />
                 </div>
               </div>
 
@@ -618,17 +634,14 @@ export default function PracticePage() {
                     {scope === 'whole' ? 'Làm lại toàn bài' : 'Làm lại đoạn'}
                   </button>
                   {mode === 'memory' && !exam && (
-                    <button
-                      className="btn"
-                      onMouseDown={() => setRevealed(true)}
-                      onMouseUp={() => setRevealed(false)}
-                      onMouseLeave={() => setRevealed(false)}
-                      onTouchStart={() => setRevealed(true)}
-                      onTouchEnd={() => setRevealed(false)}
+                    <HoldPeekButton
+                      ariaLabel="Nhấn giữ để xem gợi ý"
+                      onDown={() => setRevealed(true)}
+                      onUp={() => setRevealed(false)}
                     >
                       <LightBulbIcon width={16} height={16} />
-                      Xem gợi ý
-                    </button>
+                      Nhấn giữ để xem gợi ý
+                    </HoldPeekButton>
                   )}
                 </div>
                 <div className="btn-row">
@@ -650,23 +663,20 @@ export default function PracticePage() {
               {/* section navigator */}
               <div style={{ marginTop: 26 }}>
                 <strong style={{ fontSize: '0.9rem' }}>Cấu trúc bài</strong>
-                <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 10 }}>
-                  {template.sections.map((s, i) => (
-                    <button
-                      key={i}
-                      className="btn"
-                      style={{
-                        borderColor: completed[i] ? 'var(--correct)' : undefined,
-                        opacity: scope === 'sections' && i === sectionIdx ? 1 : 0.85,
-                      }}
-                      onClick={() => { if (scope === 'sections') setSectionIdx(i); }}
-                      disabled={scope !== 'sections'}
-                      title={scope === 'sections' ? `Luyện đoạn ${i + 1}` : s.name}
-                    >
-                      {i + 1}. {s.name}
-                      {completed[i] && <CheckIcon width={15} height={15} style={{ color: 'var(--correct)' }} />}
-                    </button>
-                  ))}
+                <div style={{ marginTop: 12 }}>
+                  <StepIndicator
+                    ariaLabel="Cấu trúc bài theo đoạn"
+                    clickable={scope === 'sections'}
+                    onStepClick={(i) => { if (scope === 'sections') setSectionIdx(i); }}
+                    steps={template.sections.map((s, i) => ({
+                      label: s.name,
+                      state: (completed[i]
+                        ? 'complete'
+                        : scope === 'sections' && i === sectionIdx
+                          ? 'active'
+                          : 'todo') as StepState,
+                    }))}
+                  />
                 </div>
                 <p style={{ color: 'var(--muted)', fontSize: '0.85rem', marginTop: 12 }}>
                   Gõ chậm và đúng trước. Khi đạt 95% trở lên, hãy chuyển sang <strong>Tự nhớ</strong>.
@@ -689,9 +699,27 @@ export default function PracticePage() {
                 {template.title} · {exam ? 'chế độ thi thử' : scope === 'whole' ? 'gõ toàn bài' : 'gõ từng phần'}
               </p>
               <div className="metric-grid" style={{ marginTop: 0 }}>
-                <div className="metric"><strong>{finalStats.accuracy}%</strong><span>Độ chính xác</span></div>
-                <div className="metric"><strong>{fmt(finalStats.durationSec)}</strong><span>Thời gian gõ</span></div>
-                <div className="metric"><strong>{finalStats.words}</strong><span>Số từ đã gõ</span></div>
+                <div className="metric-meter">
+                  <Meter
+                    label="Độ chính xác"
+                    value={<><CountUp to={finalStats.accuracy} />%</>}
+                    percent={finalStats.accuracy}
+                  />
+                </div>
+                <div className="metric-meter">
+                  <Meter
+                    label="Thời gian gõ"
+                    value={fmt(finalStats.durationSec)}
+                    percent={durationMin > 0 ? Math.min(100, (finalStats.durationSec / (durationMin * 60)) * 100) : 0}
+                  />
+                </div>
+                <div className="metric-meter">
+                  <Meter
+                    label="Số từ đã gõ"
+                    value={<CountUp to={finalStats.words} />}
+                    percent={100}
+                  />
+                </div>
               </div>
               {dbNote && (
                 <p style={{ color: 'var(--muted)', fontSize: '0.85rem' }}>
@@ -703,6 +731,20 @@ export default function PracticePage() {
               {drillList.length > 0 && !drillDone && (
                 <div className="card-soft" style={{ marginTop: 22 }}>
                   <strong>Luyện từ hay gõ sai ({drillIdx + 1}/{drillList.length})</strong>
+                  <div
+                    className="drill-progress"
+                    role="img"
+                    aria-label={`Đã luyện ${drillIdx} trên ${drillList.length} từ`}
+                  >
+                    {drillList.map((w, i) => (
+                      <AnimCheckbox
+                        key={`${w}-${i}`}
+                        title={w}
+                        small
+                        checked={i < drillIdx}
+                      />
+                    ))}
+                  </div>
                   <p style={{ fontSize: '0.88rem', color: 'var(--muted)' }}>
                     Gõ lại đúng từng từ bạn đã gõ sai trong bài:
                   </p>
