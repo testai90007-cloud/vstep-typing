@@ -2,8 +2,8 @@
 
 // DarkVeil — adapted from the React Bits DarkVeil component
 // (https://reactbits.dev/components/dark-veil), converted to TypeScript.
-// WebGL (ogl) animated CPPN background. Respects prefers-reduced-motion
-// (renders a single static frame) and renders nothing if WebGL fails.
+// WebGL (ogl) animated CPPN background. Always animates (the original has no
+// reduced-motion handling). Renders nothing if WebGL fails.
 
 import { useRef, useEffect, useState } from 'react';
 import { Renderer, Program, Mesh, Triangle, Vec2 } from 'ogl';
@@ -123,8 +123,6 @@ export default function DarkVeil({
     const parent = canvas.parentElement;
     if (!parent) return;
 
-    const reduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
-
     let renderer: Renderer;
     try {
       renderer = new Renderer({ dpr: Math.min(window.devicePixelRatio, 2), canvas });
@@ -184,16 +182,11 @@ export default function DarkVeil({
       renderer.render({ scene: mesh });
     };
 
-    if (reduced) {
-      // Static single frame for users who prefer reduced motion.
-      draw(0.8);
-    } else {
-      const loop = () => {
-        draw((performance.now() - start) / 1000);
-        frame = requestAnimationFrame(loop);
-      };
-      loop();
-    }
+    const loop = () => {
+      draw((performance.now() - start) / 1000);
+      frame = requestAnimationFrame(loop);
+    };
+    loop();
 
     return () => {
       cancelAnimationFrame(frame);

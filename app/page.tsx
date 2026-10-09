@@ -45,17 +45,19 @@ export default function HomePage() {
   const isDark = useIsDark();
 
   return (
-    <main className="page">
-      <section className="hero hero-veil">
-        <div className="veil-bg" aria-hidden="true">
-          <DarkVeil
-            lightMode={!isDark}
-            speed={0.5}
-            noiseIntensity={0.05}
-            warpAmount={0.3}
-            resolutionScale={0.75}
-          />
-        </div>
+    <>
+      {/* Full-page animated background (fixed viewport layer behind everything). */}
+      <div className="veil-page" aria-hidden="true">
+        <DarkVeil
+          lightMode={!isDark}
+          speed={0.5}
+          noiseIntensity={0.05}
+          warpAmount={0.3}
+          resolutionScale={0.75}
+        />
+      </div>
+      <main className="page page-home">
+      <section className="hero">
         <div className="hero-content">
           <span className="pill-badge">
             <span className="dot grad-dot" aria-hidden="true" />
@@ -92,6 +94,7 @@ export default function HomePage() {
           </Link>
         ))}
       </div>
-    </main>
+      </main>
+    </>
   );
 }
