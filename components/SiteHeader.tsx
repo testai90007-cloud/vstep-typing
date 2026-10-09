@@ -7,7 +7,7 @@ import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { signIn, signOut, useSession } from 'next-auth/react';
 import AnimatedThemeToggler from '@/components/ui/animated-theme-toggler';
-import HomeDock from '@/components/HomeDock';
+import NavDock from '@/components/NavDock';
 import { ShimmerButton } from '@/components/ui/shimmer-button';
 import {
   PencilSquareIcon,
@@ -64,78 +64,83 @@ function GoogleIcon() {
 export default function SiteHeader() {
   const pathname = usePathname();
   const { data: session, status } = useSession();
-  // The home page uses the floating Dock instead of the top bar; every other
-  // page keeps the classic header nav.
+  // Homepage keeps the classic top bar. Inner pages (except exam doing
+  // pages, which keep the header to avoid overlapping their sticky exam
+  // bars) use the floating Dock instead — the header stays rendered but
+  // hidden on desktop so mobile (where the dock is hidden) keeps it.
   const isHome = pathname === '/';
+  const isDoing = pathname.includes('/de-thi/');
+  const useDock = !isHome && !isDoing;
+
+  const headerBody = (withNav: boolean) => (
+    <div className="site-header-inner">
+      <Link href="/" className="logo" aria-label="Luyện VSTEP — trang chủ">
+        <span className="logo-mark" aria-hidden="true" />
+        <span className="logo-text">Luyện VSTEP</span>
+      </Link>
+
+      {withNav && (
+        <nav className="site-nav" aria-label="Điều hướng chính">
+          {NAV.map(({ href, label, Icon }) => {
+            const active = pathname === href || pathname.startsWith(href + '/');
+            return (
+              <Link key={href} href={href} className={active ? 'active' : ''} title={label}>
+                <Icon width={16} height={16} strokeWidth={active ? 2.2 : 1.8} />
+                <span className="nav-label">{label}</span>
+              </Link>
+            );
+          })}
+        </nav>
+      )}
+
+      <div className="header-user">
+        <AnimatedThemeToggler />
+        <Link
+          href="/settings"
+          className="icon-btn mobile-only"
+          title="Cài đặt AI"
+          aria-label="Cài đặt AI"
+        >
+          <Cog6ToothIcon width={18} height={18} />
+        </Link>
+        {status === 'loading' ? null : session?.user ? (
+          <>
+            {session.user.image && (
+              <img
+                src={session.user.image}
+                alt=""
+                className="header-avatar"
+                referrerPolicy="no-referrer"
+              />
+            )}
+            <button
+              className="icon-btn"
+              onClick={() => signOut()}
+              title="Đăng xuất"
+              aria-label="Đăng xuất"
+            >
+              <ArrowRightOnRectangleIcon width={18} height={18} />
+            </button>
+          </>
+        ) : (
+          <ShimmerButton
+            onClick={() => signIn('google')}
+            aria-label="Đăng nhập bằng Google"
+          >
+            <GoogleIcon />
+            <span>Đăng nhập</span>
+          </ShimmerButton>
+        )}
+      </div>
+    </div>
+  );
 
   return (
     <>
-      {isHome ? (
-        <HomeDock />
-      ) : (
-      <header className="site-header">
-      <div className="site-header-inner">
-        <Link href="/" className="logo" aria-label="Luyện VSTEP — trang chủ">
-          <span className="logo-mark" aria-hidden="true" />
-          <span className="logo-text">Luyện VSTEP</span>
-        </Link>
-
-        {!isHome && (
-          <nav className="site-nav" aria-label="Điều hướng chính">
-            {NAV.map(({ href, label, Icon }) => {
-              const active = pathname === href || pathname.startsWith(href + '/');
-              return (
-                <Link key={href} href={href} className={active ? 'active' : ''} title={label}>
-                  <Icon width={16} height={16} strokeWidth={active ? 2.2 : 1.8} />
-                  <span className="nav-label">{label}</span>
-                </Link>
-              );
-            })}
-          </nav>
-        )}
-
-        <div className="header-user">
-          <AnimatedThemeToggler />
-          <Link
-            href="/settings"
-            className="icon-btn mobile-only"
-            title="Cài đặt AI"
-            aria-label="Cài đặt AI"
-          >
-            <Cog6ToothIcon width={18} height={18} />
-          </Link>
-          {status === 'loading' ? null : session?.user ? (
-            <>
-              {session.user.image && (
-                <img
-                  src={session.user.image}
-                  alt=""
-                  className="header-avatar"
-                  referrerPolicy="no-referrer"
-                />
-              )}
-              <button
-                className="icon-btn"
-                onClick={() => signOut()}
-                title="Đăng xuất"
-                aria-label="Đăng xuất"
-              >
-                <ArrowRightOnRectangleIcon width={18} height={18} />
-              </button>
-            </>
-          ) : (
-            <ShimmerButton
-              onClick={() => signIn('google')}
-              aria-label="Đăng nhập bằng Google"
-            >
-              <GoogleIcon />
-              <span>Đăng nhập</span>
-            </ShimmerButton>
-          )}
-        </div>
-      </div>
+      {useDock && <NavDock />}
+      <header className={`site-header${useDock ? ' inner-header' : ''}`}>
+        {headerBody(!isHome)}
       </header>
-      )}
 
       {/* bottom tab bar — touch-friendly skill switching on narrow screens.
           Sibling of the header (not inside it): the header's backdrop-filter

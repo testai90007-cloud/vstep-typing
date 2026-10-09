@@ -1,8 +1,8 @@
 'use client';
 
-// HomeDock — floating skill dock shown on the homepage INSTEAD of the top
-// nav bar (other pages keep SiteHeader). React Bits Dock with macOS-style
-// magnification; items navigate to the skill pages.
+// NavDock — floating skill dock shown on inner pages INSTEAD of the top
+// nav bar (the homepage keeps SiteHeader). React Bits Dock with macOS-style
+// magnification; items navigate between the skill pages.
 
 import { useRouter } from 'next/navigation';
 import { signIn, signOut, useSession } from 'next-auth/react';
@@ -24,7 +24,7 @@ import { flipThemeAnimated } from '@/components/ui/animated-theme-toggler';
 
 const iconProps = { width: 22, height: 22 } as const;
 
-export default function HomeDock() {
+export default function NavDock() {
   const router = useRouter();
   const { data: session, status } = useSession();
   const isDark = useIsDark();
@@ -75,5 +75,5 @@ export default function HomeDock() {
     ...(authItem ? [authItem] : []),
   ];
 
-  return <Dock items={items} theme={isDark ? 'dark' : 'light'} className="home-dock" />;
+  return <Dock items={items} theme={isDark ? 'dark' : 'light'} className="nav-dock" />;
 }

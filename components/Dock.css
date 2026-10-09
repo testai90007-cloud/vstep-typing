@@ -512,15 +512,16 @@
   }
 }
 
-/* ---- Homepage floating dock overrides (this project) ---- */
-.home-dock.dock {
+/* ---- Inner-page floating dock overrides (this project) ----
+   The dock replaces the top bar on inner pages (desktop only). */
+.nav-dock.dock {
   position: fixed;
   z-index: 60;
 }
 
 /* The mobile bottom tab bar already covers navigation on narrow screens. */
 @media (max-width: 760px) {
-  .home-dock.dock {
+  .nav-dock.dock {
     display: none;
   }
 }

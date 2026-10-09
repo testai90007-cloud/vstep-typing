@@ -616,6 +616,13 @@ kbd {
   background: color-mix(in srgb, var(--bg) 82%, transparent);
   border-bottom: 1px solid var(--line);
 }
+/* Inner pages use the floating dock instead of the top bar on desktop; the
+   header stays for mobile (where the dock is hidden). */
+@media (min-width: 761px) {
+  .site-header.inner-header {
+    display: none;
+  }
+}
 .site-header-inner {
   width: min(1280px, calc(100% - 48px));
   margin: 0 auto;
