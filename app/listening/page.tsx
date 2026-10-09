@@ -2,7 +2,7 @@
 
 // Listening test list: /listening
 
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { useSession } from 'next-auth/react';
 import {
@@ -12,7 +12,6 @@ import {
 } from '@heroicons/react/24/outline';
 import { LISTENING_TESTS } from '@/lib/listening';
 import ExamFormatCard from '@/components/ExamFormatCard';
-import TestRangePicker, { useTestRangeFilter } from '@/components/TestRangePicker';
 
 interface ListeningSession {
   test_id: string;
@@ -24,14 +23,6 @@ interface ListeningSession {
 export default function ListeningListPage() {
   const { data: session } = useSession();
   const [best, setBest] = useState<Record<string, number>>({});
-  const { sel, toggle, ranges, visible, total } = useTestRangeFilter(LISTENING_TESTS);
-  const listRef = useRef<HTMLDivElement>(null);
-  const handleToggle = (key: string) => {
-    toggle(key);
-    requestAnimationFrame(() =>
-      listRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
-    );
-  };
 
   useEffect(() => {
     if (!session?.user) return;
@@ -91,32 +82,25 @@ export default function ListeningListPage() {
         56 đề thi thử — mỗi đề 35 câu, đúng 40 phút như thi thật. Đề demo để làm quen
         giao diện trước.
       </p>
-      <div ref={listRef} style={{ scrollMarginTop: 90 }}>
-        <TestRangePicker ranges={ranges} total={total} sel={sel} onToggle={handleToggle} />
-        {visible.length > 0 ? (
-          <div className="test-grid reveal" key={sel ?? 'none'}>
-            {visible.map((t) => (
-              <Link key={t.id} href={`/listening/${t.id}`} className="test-cell">
-                <strong>
-                  {t.demo ? 'Demo' : (<><span className="de-word">Đề</span>{t.title.replace(/^Đề\s+/, '')}</>)}
-                  {t.demo && (
-                    <span className="chip" style={{ marginLeft: 6, fontSize: '0.62rem' }}>
-                      LÀM QUEN
-                    </span>
-                  )}
-                </strong>
-                {best[t.id] != null && (
-                  <span className="cell-score">
-                    <TrophyIcon width={12} height={12} />
-                    {best[t.id]}%
-                  </span>
-                )}
-              </Link>
-            ))}
-          </div>
-        ) : (
-          <p className="range-hint">Chọn một khoảng đề ở trên để xem danh sách.</p>
-        )}
+      <div className="test-grid">
+        {LISTENING_TESTS.map((t) => (
+          <Link key={t.id} href={`/listening/${t.id}`} className="test-cell">
+            <strong>
+              {t.demo ? 'Demo' : (<><span className="de-word">Đề</span>{t.title.replace(/^Đề\s+/, '')}</>)}
+              {t.demo && (
+                <span className="chip" style={{ marginLeft: 6, fontSize: '0.62rem' }}>
+                  LÀM QUEN
+                </span>
+              )}
+            </strong>
+            {best[t.id] != null && (
+              <span className="cell-score">
+                <TrophyIcon width={12} height={12} />
+                {best[t.id]}%
+              </span>
+            )}
+          </Link>
+        ))}
       </div>
     </main>
   );

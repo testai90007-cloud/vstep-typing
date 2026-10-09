@@ -2,23 +2,12 @@
 
 // Reading test list: /reading
 
-import { useRef } from 'react';
 import Link from 'next/link';
 import { ArrowLeftIcon, BookOpenIcon } from '@heroicons/react/24/outline';
 import ExamFormatCard from '@/components/ExamFormatCard';
 import { READING_TESTS } from '@/lib/reading-tests';
-import TestRangePicker, { useTestRangeFilter } from '@/components/TestRangePicker';
 
 export default function ReadingListPage() {
-  const { sel, toggle, ranges, visible, total } = useTestRangeFilter(READING_TESTS);
-  const listRef = useRef<HTMLDivElement>(null);
-  const handleToggle = (key: string) => {
-    toggle(key);
-    requestAnimationFrame(() =>
-      listRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
-    );
-  };
-
   return (
     <main className="page">
       <div className="nav-top">
@@ -60,19 +49,12 @@ export default function ReadingListPage() {
       <p className="lead" style={{ margin: '-4px 0 14px', fontSize: '0.9rem' }}>
         200 đề thi thử — mỗi đề gồm 4 bài đọc × 10 câu hỏi, đúng 60 phút như thi thật.
       </p>
-      <div ref={listRef} style={{ scrollMarginTop: 90 }}>
-        <TestRangePicker ranges={ranges} total={total} sel={sel} onToggle={handleToggle} />
-        {visible.length > 0 ? (
-          <div className="test-grid reveal" key={sel ?? 'none'}>
-            {visible.map((t) => (
-              <Link key={t.id} href={`/reading/${t.id}`} className="test-cell">
-                <strong><span className="de-word">Đề</span>{t.title.replace(/^Đề\s+/, '')}</strong>
-              </Link>
-            ))}
-          </div>
-        ) : (
-          <p className="range-hint">Chọn một khoảng đề ở trên để xem danh sách.</p>
-        )}
+      <div className="test-grid">
+        {READING_TESTS.map((t) => (
+          <Link key={t.id} href={`/reading/${t.id}`} className="test-cell">
+            <strong><span className="de-word">Đề</span>{t.title.replace(/^Đề\s+/, '')}</strong>
+          </Link>
+        ))}
       </div>
     </main>
   );
