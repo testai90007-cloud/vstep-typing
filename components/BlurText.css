@@ -1,0 +1,18 @@
+/* BlurText — vanilla CSS companion (React Bits port). */
+.blur-text {
+  display: inline;
+}
+
+.blur-text-mask {
+  display: inline-block;
+  overflow: hidden;
+  vertical-align: bottom;
+  /* mask the y-travel so words slide in from behind the line edge */
+  padding-bottom: 0.08em;
+  margin-bottom: -0.08em;
+}
+
+.blur-text-seg {
+  display: inline-block;
+  will-change: transform, filter, opacity;
+}

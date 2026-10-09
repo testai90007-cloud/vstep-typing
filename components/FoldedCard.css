@@ -1,0 +1,66 @@
+/* FoldedCard — vanilla CSS companion (Cult UI port). */
+.folded-card {
+  --fold-clip: polygon(
+    0 8px, 8px 0,
+    calc(100% - 40px) 0, 100% 40px,
+    100% calc(100% - 8px), calc(100% - 8px) 100%,
+    8px 100%, 0 calc(100% - 8px)
+  );
+  display: block;
+  clip-path: var(--fold-clip);
+  background: var(--line);
+  padding: 1px;
+  text-decoration: none;
+  color: inherit;
+  transition: transform 0.16s ease;
+}
+
+a.folded-card:hover {
+  transform: translateY(-2px);
+}
+
+.folded-card-inner {
+  position: relative;
+  display: block;
+  height: 100%;
+  clip-path: var(--fold-clip);
+  background: var(--paper);
+  padding: 20px 22px;
+  /* keep content clear of the folded corner */
+  padding-right: 52px;
+}
+
+/* the folded paper corner */
+.folded-fold {
+  position: absolute;
+  top: 1px;
+  right: 1px;
+  width: 38px;
+  height: 38px;
+  clip-path: polygon(0 0, 100% 0, 100% 100%);
+  background: linear-gradient(
+    135deg,
+    var(--paper-soft, #f4f2ec) 0%,
+    var(--line) 100%
+  );
+  pointer-events: none;
+}
+
+.folded-fold-shade {
+  position: absolute;
+  inset: 0;
+  clip-path: polygon(0 0, 100% 0, 100% 100%);
+  background: linear-gradient(
+    135deg,
+    transparent 55%,
+    rgba(0, 0, 0, 0.08) 100%
+  );
+}
+
+html[data-theme='dark'] .folded-fold-shade {
+  background: linear-gradient(
+    135deg,
+    transparent 55%,
+    rgba(255, 255, 255, 0.06) 100%
+  );
+}

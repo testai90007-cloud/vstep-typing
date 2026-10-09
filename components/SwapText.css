@@ -1,0 +1,40 @@
+/* SwapText — vanilla CSS companion (Animata port). */
+.swap-text {
+  --ease-slow: cubic-bezier(0.405, 0, 0.025, 1);
+  position: relative;
+  overflow: hidden;
+  display: block;
+}
+
+.swap-initial,
+.swap-final {
+  display: block;
+  transition: transform 200ms var(--ease-slow);
+}
+
+.swap-final {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  right: 0;
+}
+
+/* the card itself is the hover target */
+.swap-hover:hover .swap-initial,
+a:hover .swap-initial,
+.swap-text:hover .swap-initial {
+  transform: translateY(-100%);
+}
+
+.swap-hover:hover .swap-final,
+a:hover .swap-final,
+.swap-text:hover .swap-final {
+  transform: translateY(-100%);
+}
+
+.swap-sizer {
+  visibility: hidden;
+  height: 0;
+  display: block;
+  overflow: hidden;
+}

@@ -1,55 +1,46 @@
 'use client';
 
+import { useState } from 'react';
 import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 import {
   ArrowLeftIcon,
-  ChevronRightIcon,
   DocumentTextIcon,
   PencilSquareIcon,
-  EnvelopeIcon,
 } from '@heroicons/react/24/outline';
+import BlurText from '@/components/BlurText';
+import { FoldedCard } from '@/components/FoldedCard';
+import { SpellBadge } from '@/components/SpellBadge';
+import { SwapText } from '@/components/SwapText';
+import { TestSearchBar, type SearchItem } from '@/components/TestSearchBar';
+import FluidTabs from '@/components/FluidTabs';
 import { TEMPLATES } from '@/lib/templates';
 import { WRITING_TESTS } from '@/lib/writing-tests';
 import ExamFormatCard from '@/components/ExamFormatCard';
 
+type TplTab = 'task2' | 'task1';
+
 export default function WritingIndexPage() {
+  const router = useRouter();
+  const [tab, setTab] = useState<TplTab>('task2');
   const task2 = TEMPLATES.filter((t) => t.group === 'task2');
   const task1 = TEMPLATES.filter((t) => t.group === 'task1');
+  const shown = tab === 'task2' ? task2 : task1;
 
-  const renderGroup = (
-    title: string,
-    Icon: typeof PencilSquareIcon,
-    items: typeof task2
-  ) => (
-    <>
-      <h2 className="section-title">
-        <span className="icon-badge sm">
-          <Icon width={18} height={18} strokeWidth={1.6} />
-        </span>
-        {title}
-      </h2>
-      <div style={{ display: 'grid', gap: 10 }}>
-        {items.map((t) => (
-          <Link
-            key={t.id}
-            href={`/writing/${t.id}`}
-            className="card lift"
-            style={{ textDecoration: 'none', color: 'inherit', padding: '18px 20px' }}
-          >
-            <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-              <div style={{ flex: 1, minWidth: 0 }}>
-                <strong style={{ fontSize: '1rem' }}>{t.title}</strong>
-                <div style={{ color: 'var(--muted)', fontSize: '0.84rem', marginTop: 4 }}>
-                  {t.sections.length} phần · {t.sections.map((s) => s.name).join(' → ')}
-                </div>
-              </div>
-              <ChevronRightIcon width={20} height={20} style={{ color: 'var(--faint)', flexShrink: 0 }} />
-            </div>
-          </Link>
-        ))}
-      </div>
-    </>
-  );
+  const searchItems: SearchItem[] = WRITING_TESTS.map((t) => ({
+    id: t.id,
+    num: t.num,
+    title: t.title,
+  }));
+
+  const openTest = (item: SearchItem) => {
+    router.push(`/writing/de-thi/${item.id}`);
+  };
+
+  const openRandom = () => {
+    const t = WRITING_TESTS[Math.floor(Math.random() * WRITING_TESTS.length)];
+    router.push(`/writing/de-thi/${t.id}`);
+  };
 
   return (
     <main className="page">
@@ -60,8 +51,13 @@ export default function WritingIndexPage() {
         </Link>
       </div>
       <p className="page-eyebrow">01 — Luyện Viết</p>
-      <h1 className="page-title">Chọn đề viết</h1>
-      <p className="page-sub">Task 1: thư/email ≥ 120 từ. Task 2: bài luận ≥ 250 từ. Thi thử 60 phút, tự động nộp khi hết giờ.</p>
+      <h1 className="page-title">
+        <BlurText text="Chọn đề viết" delay={110} animateBy="words" />
+      </h1>
+      <p className="page-sub">
+        Task 1: thư/email ≥ 120 từ. Task 2: bài luận ≥ 250 từ. Thi thử 60 phút,
+        tự động nộp khi hết giờ.
+      </p>
 
       <ExamFormatCard
         icon={PencilSquareIcon}
@@ -81,30 +77,97 @@ export default function WritingIndexPage() {
         ]}
       />
 
-      <h2 className="section-title">
-        <span className="icon-badge sm">
-          <DocumentTextIcon width={18} height={18} strokeWidth={1.6} />
-        </span>
-        Danh sách đề
-      </h2>
+      <div className="sec-head">
+        <h2 className="section-title" style={{ margin: 0 }}>
+          <span className="icon-badge sm">
+            <DocumentTextIcon width={18} height={18} strokeWidth={1.6} />
+          </span>
+          Danh sách đề
+        </h2>
+        <SpellBadge variant="neutral">300 đề</SpellBadge>
+      </div>
       <p className="lead" style={{ margin: '-4px 0 14px', fontSize: '0.9rem' }}>
-        Chọn một đề bên dưới để bắt đầu — mỗi đề gồm Task 1 (thư/email) và Task 2
-        (bài luận), đúng 60 phút như thi thật.
+        Gõ số đề để tìm nhanh, hoặc chọn một đề bên dưới — mỗi đề gồm Task 1
+        (thư/email) và Task 2 (bài luận), đúng 60 phút như thi thật.
       </p>
-      <div className="test-grid">
+      <TestSearchBar
+        items={searchItems}
+        placeholder="Tìm đề… (gõ số, vd 29)"
+        onSelect={openTest}
+        onRandom={openRandom}
+      />
+      <div className="test-grid" style={{ marginTop: 16 }}>
         {WRITING_TESTS.map((t) => (
           <Link
             key={t.id}
             href={`/writing/de-thi/${t.id}`}
             className="test-cell"
           >
-            <strong><span className="de-word">Đề</span>{t.title.replace(/^Đề\s+/, '')}</strong>
+            <strong>
+              <span className="de-word">Đề</span>
+              {t.title.replace(/^Đề\s+/, '')}
+            </strong>
           </Link>
         ))}
       </div>
 
-      {renderGroup('Task 2 · Bài luận', PencilSquareIcon, task2)}
-      {renderGroup('Task 1 · Thư / Email', EnvelopeIcon, task1)}
+      <div className="sec-head">
+        <h2 className="section-title" style={{ margin: 0 }}>
+          <span className="icon-badge sm">
+            <PencilSquareIcon width={18} height={18} strokeWidth={1.6} />
+          </span>
+          Mẫu viết
+        </h2>
+      </div>
+      <p className="lead" style={{ margin: '-4px 0 4px', fontSize: '0.9rem' }}>
+        Khung bài mẫu cho từng dạng đề — di chuột lên thẻ để xem các phần.
+      </p>
+      <FluidTabs
+        tabs={[
+          {
+            id: 'task2',
+            label: (
+              <>
+                Task 2 · Bài luận <span className="tab-count">{task2.length}</span>
+              </>
+            ),
+          },
+          {
+            id: 'task1',
+            label: (
+              <>
+                Task 1 · Thư / Email <span className="tab-count">{task1.length}</span>
+              </>
+            ),
+          },
+        ]}
+        activeId={tab}
+        onChange={(id) => setTab(id as TplTab)}
+        ariaLabel="Mẫu viết theo Task"
+      />
+      <div className="tpl-grid">
+        {shown.map((t) => (
+          <FoldedCard key={t.id} href={`/writing/${t.id}`} className="tpl-card">
+            <SpellBadge variant="violet">
+              {tab === 'task2' ? 'Task 2' : 'Task 1'} · {t.sections.length} phần
+            </SpellBadge>
+            <SwapText
+              className="tpl-swap"
+              initialText={t.title}
+              finalText={`${t.sections.length} phần · ${t.sections.map((s) => s.name).join(' → ')}`}
+              initialTextClassName="tpl-title"
+              finalTextClassName="tpl-sections"
+            />
+            {/* static fallback for touch / narrow screens */}
+            <span className="tpl-static">
+              <strong className="tpl-title">{t.title}</strong>
+              <span className="tpl-sections">
+                {t.sections.length} phần · {t.sections.map((s) => s.name).join(' → ')}
+              </span>
+            </span>
+          </FoldedCard>
+        ))}
+      </div>
     </main>
   );
 }

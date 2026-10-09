@@ -282,6 +282,54 @@ h1.brand .hl { color: var(--accent-strong); }
 /* dense numbered test grid (danh sách đề) — Eldora UI card style
    (adapted from testimonal-03: rounded 10px, permanent soft shadow,
    1px border, subtle hover lift) */
+/* --- writing: template cards (folded + swap text) --- */
+.tpl-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+  gap: 14px;
+  margin-top: 16px;
+}
+.tpl-card .folded-card-inner {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-height: 148px;
+}
+.tpl-swap {
+  margin-top: 2px;
+}
+.tpl-title {
+  font-size: 1.02rem;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  line-height: 1.35;
+}
+.tpl-sections {
+  font-size: 0.84rem;
+  font-weight: 500;
+  color: var(--muted);
+  line-height: 1.5;
+}
+.tpl-static {
+  display: none;
+  margin-top: 2px;
+}
+.tpl-static .tpl-title {
+  display: block;
+  margin-bottom: 6px;
+}
+.tpl-static .tpl-sections {
+  display: block;
+}
+/* touch / narrow: no hover swap, show both statically */
+@media (hover: none), (max-width: 760px) {
+  .tpl-swap {
+    display: none;
+  }
+  .tpl-static {
+    display: block;
+  }
+}
 .test-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(128px, 1fr));
