@@ -5,14 +5,16 @@ import Link from 'next/link';
 import { ArrowLeftIcon, MicrophoneIcon } from '@heroicons/react/24/outline';
 import ExamFormatCard from '@/components/ExamFormatCard';
 import { SPEAKING_TESTS } from '@/lib/speaking-tests';
-import TestRangePanel, { useTestRangeFilter } from '@/components/TestRangePanel';
+import TestRangePicker, { useTestRangeFilter } from '@/components/TestRangePicker';
 
 export default function SpeakingPage() {
-  const { rangeKey, setRangeKey, active, visible, nums } = useTestRangeFilter(SPEAKING_TESTS);
-  const gridRef = useRef<HTMLDivElement>(null);
-  const handleSelect = (key: string | null) => {
-    setRangeKey(key);
-    gridRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  const { sel, toggle, ranges, visible, total } = useTestRangeFilter(SPEAKING_TESTS);
+  const listRef = useRef<HTMLDivElement>(null);
+  const handleToggle = (key: string) => {
+    toggle(key);
+    requestAnimationFrame(() =>
+      listRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+    );
   };
 
   return (
@@ -56,26 +58,20 @@ export default function SpeakingPage() {
         302 đề thi thử — mỗi đề gồm đủ Part 1 (6 câu hỏi), Part 2 (tình huống + 3 lựa
         chọn) và Part 3 (chủ đề + mind-map + câu hỏi mở rộng), đúng 12 phút như thi thật.
       </p>
-      <div className="test-grid" ref={gridRef} style={{ scrollMarginTop: 90 }}>
-        {active && (
-          <p className="range-note" style={{ gridColumn: '1 / -1' }}>
-            Đang hiện đề {active.label} ({visible.length} đề) ·{' '}
-            <button type="button" onClick={() => setRangeKey(null)}>Hiện tất cả</button>
-          </p>
+      <div ref={listRef} style={{ scrollMarginTop: 90 }}>
+        <TestRangePicker ranges={ranges} total={total} sel={sel} onToggle={handleToggle} />
+        {visible.length > 0 ? (
+          <div className="test-grid reveal" key={sel ?? 'none'}>
+            {visible.map((t) => (
+              <Link key={t.id} href={`/speaking/de-thi/${t.id}`} className="test-cell">
+                <strong><span className="de-word">Đề</span>{t.title.replace(/^Đề\s+/, '')}</strong>
+              </Link>
+            ))}
+          </div>
+        ) : (
+          <p className="range-hint">Chọn một khoảng đề ở trên để xem danh sách.</p>
         )}
-        {visible.map((t) => (
-          <Link key={t.id} href={`/speaking/de-thi/${t.id}`} className="test-cell">
-            <strong><span className="de-word">Đề</span>{t.title.replace(/^Đề\s+/, '')}</strong>
-          </Link>
-        ))}
       </div>
-
-      <TestRangePanel
-        nums={nums}
-        total={SPEAKING_TESTS.length}
-        activeKey={rangeKey}
-        onSelect={handleSelect}
-      />
     </main>
   );
 }

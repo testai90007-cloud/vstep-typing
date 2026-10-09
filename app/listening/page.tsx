@@ -12,7 +12,7 @@ import {
 } from '@heroicons/react/24/outline';
 import { LISTENING_TESTS } from '@/lib/listening';
 import ExamFormatCard from '@/components/ExamFormatCard';
-import TestRangePanel, { useTestRangeFilter } from '@/components/TestRangePanel';
+import TestRangePicker, { useTestRangeFilter } from '@/components/TestRangePicker';
 
 interface ListeningSession {
   test_id: string;
@@ -24,11 +24,13 @@ interface ListeningSession {
 export default function ListeningListPage() {
   const { data: session } = useSession();
   const [best, setBest] = useState<Record<string, number>>({});
-  const { rangeKey, setRangeKey, active, visible, nums } = useTestRangeFilter(LISTENING_TESTS);
-  const gridRef = useRef<HTMLDivElement>(null);
-  const handleSelect = (key: string | null) => {
-    setRangeKey(key);
-    gridRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  const { sel, toggle, ranges, visible, total } = useTestRangeFilter(LISTENING_TESTS);
+  const listRef = useRef<HTMLDivElement>(null);
+  const handleToggle = (key: string) => {
+    toggle(key);
+    requestAnimationFrame(() =>
+      listRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+    );
   };
 
   useEffect(() => {
@@ -89,39 +91,33 @@ export default function ListeningListPage() {
         56 đề thi thử — mỗi đề 35 câu, đúng 40 phút như thi thật. Đề demo để làm quen
         giao diện trước.
       </p>
-      <div className="test-grid" ref={gridRef} style={{ scrollMarginTop: 90 }}>
-        {active && (
-          <p className="range-note" style={{ gridColumn: '1 / -1' }}>
-            Đang hiện đề {active.label} ({visible.length} đề) ·{' '}
-            <button type="button" onClick={() => setRangeKey(null)}>Hiện tất cả</button>
-          </p>
+      <div ref={listRef} style={{ scrollMarginTop: 90 }}>
+        <TestRangePicker ranges={ranges} total={total} sel={sel} onToggle={handleToggle} />
+        {visible.length > 0 ? (
+          <div className="test-grid reveal" key={sel ?? 'none'}>
+            {visible.map((t) => (
+              <Link key={t.id} href={`/listening/${t.id}`} className="test-cell">
+                <strong>
+                  {t.demo ? 'Demo' : (<><span className="de-word">Đề</span>{t.title.replace(/^Đề\s+/, '')}</>)}
+                  {t.demo && (
+                    <span className="chip" style={{ marginLeft: 6, fontSize: '0.62rem' }}>
+                      LÀM QUEN
+                    </span>
+                  )}
+                </strong>
+                {best[t.id] != null && (
+                  <span className="cell-score">
+                    <TrophyIcon width={12} height={12} />
+                    {best[t.id]}%
+                  </span>
+                )}
+              </Link>
+            ))}
+          </div>
+        ) : (
+          <p className="range-hint">Chọn một khoảng đề ở trên để xem danh sách.</p>
         )}
-        {visible.map((t) => (
-          <Link key={t.id} href={`/listening/${t.id}`} className="test-cell">
-            <strong>
-              {t.demo ? 'Demo' : (<><span className="de-word">Đề</span>{t.title.replace(/^Đề\s+/, '')}</>)}
-              {t.demo && (
-                <span className="chip" style={{ marginLeft: 6, fontSize: '0.62rem' }}>
-                  LÀM QUEN
-                </span>
-              )}
-            </strong>
-            {best[t.id] != null && (
-              <span className="cell-score">
-                <TrophyIcon width={12} height={12} />
-                {best[t.id]}%
-              </span>
-            )}
-          </Link>
-        ))}
       </div>
-
-      <TestRangePanel
-        nums={nums}
-        total={LISTENING_TESTS.length}
-        activeKey={rangeKey}
-        onSelect={handleSelect}
-      />
     </main>
   );
 }
