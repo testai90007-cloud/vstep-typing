@@ -279,31 +279,45 @@ h1.brand .hl { color: var(--accent-strong); }
   .exam-row { grid-template-columns: 26px minmax(0, 1fr) auto; }
   .exam-row .t { display: none; }
 }
-/* dense numbered test grid (danh sách đề) */
+/* dense numbered test grid (danh sách đề) — Eldora UI card style
+   (adapted from testimonal-03: rounded 10px, permanent soft shadow,
+   1px border, subtle hover lift) */
 .test-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(128px, 1fr));
-  gap: 10px;
+  gap: 12px;
 }
 .test-cell {
+  position: relative;
   display: flex; flex-direction: column; align-items: center; gap: 4px;
-  padding: 16px 10px 13px;
+  padding: 18px 10px 15px;
   background: var(--paper);
   border: 1px solid var(--line);
-  border-radius: var(--radius-md);
+  border-radius: 10px;
+  box-shadow: var(--shadow);
   text-decoration: none; color: inherit;
-  transition: border-color 0.14s ease, transform 0.14s ease, box-shadow 0.14s ease;
+  transition: border-color 0.16s ease, transform 0.16s ease, box-shadow 0.16s ease;
+  overflow: hidden;
 }
 .test-cell:hover {
   border-color: var(--accent);
   box-shadow: var(--shadow-lg);
-  transform: translateY(-1px);
+  transform: translateY(-2px);
 }
 .test-cell strong {
   font-size: 1.02rem; font-weight: 800; letter-spacing: -0.01em;
   font-variant-numeric: tabular-nums;
 }
 .test-cell:hover strong { color: var(--accent-strong); }
+.test-cell::after {
+  content: '→';
+  position: absolute; right: 10px; bottom: 8px;
+  font-size: 0.85rem;
+  color: var(--accent-strong); opacity: 0; transform: translateX(-4px);
+  transition: opacity 0.16s ease, transform 0.16s ease;
+  pointer-events: none;
+}
+.test-cell:hover::after { opacity: 1; transform: none; }
 
 a.card.lift:hover, .card.lift:hover {
   border-color: var(--faint);
