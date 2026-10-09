@@ -79,13 +79,6 @@ function MenuItem({
   const marqueeInnerRef = useRef<HTMLDivElement>(null);
   const animationRef = useRef<gsap.core.Tween | null>(null);
   const [repetitions, setRepetitions] = useState(4);
-  /** Respect the OS "reduce motion" setting: show the band instantly on hover,
-      no slide-in, no horizontal scroll. */
-  const reducedMotion = useRef(false);
-
-  useEffect(() => {
-    reducedMotion.current = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
-  }, []);
 
   const animationDefaults = { duration: 0.6, ease: 'expo' as const };
 
@@ -107,9 +100,9 @@ function MenuItem({
       const marqueeContent = marqueeInnerRef.current.querySelector('.marquee__part');
       if (!marqueeContent) return;
       const contentWidth = (marqueeContent as HTMLElement).offsetWidth;
-      // Guard: when the marquee is hidden (e.g. prefers-reduced-motion sets
-      // display:none), offsetWidth is 0 and innerWidth/0 = Infinity would make
-      // [...Array(Infinity)] throw RangeError and crash the page.
+      // Guard: if the marquee part measures 0 (e.g. hidden by CSS),
+      // innerWidth/0 = Infinity would make [...Array(Infinity)] throw
+      // RangeError and crash the page.
       if (!contentWidth) return;
       const viewportWidth = window.innerWidth;
       const needed = Math.ceil(viewportWidth / contentWidth) + 2;
@@ -125,8 +118,6 @@ function MenuItem({
   useEffect(() => {
     const setupMarquee = () => {
       if (!marqueeInnerRef.current) return;
-      // No horizontal scroll when the user prefers reduced motion.
-      if (reducedMotion.current) return;
       const marqueeContent = marqueeInnerRef.current.querySelector('.marquee__part');
       if (!marqueeContent) return;
       const contentWidth = (marqueeContent as HTMLElement).offsetWidth;
@@ -151,11 +142,6 @@ function MenuItem({
 
   const handleMouseEnter = (ev: React.MouseEvent) => {
     if (!itemRef.current || !marqueeRef.current || !marqueeInnerRef.current) return;
-    if (reducedMotion.current) {
-      gsap.set(marqueeRef.current, { y: '0%' });
-      gsap.set(marqueeInnerRef.current, { y: '0%' });
-      return;
-    }
     const rect = itemRef.current.getBoundingClientRect();
     const x = ev.clientX - rect.left;
     const y = ev.clientY - rect.top;
@@ -170,11 +156,6 @@ function MenuItem({
 
   const handleMouseLeave = (ev: React.MouseEvent) => {
     if (!itemRef.current || !marqueeRef.current || !marqueeInnerRef.current) return;
-    if (reducedMotion.current) {
-      gsap.set(marqueeRef.current, { y: '101%' });
-      gsap.set(marqueeInnerRef.current, { y: '0%' });
-      return;
-    }
     const rect = itemRef.current.getBoundingClientRect();
     const x = ev.clientX - rect.left;
     const y = ev.clientY - rect.top;
@@ -188,11 +169,6 @@ function MenuItem({
 
   const handleFocus = () => {
     if (!marqueeRef.current || !marqueeInnerRef.current) return;
-    if (reducedMotion.current) {
-      gsap.set(marqueeRef.current, { y: '0%' });
-      gsap.set(marqueeInnerRef.current, { y: '0%' });
-      return;
-    }
     gsap
       .timeline({ defaults: animationDefaults })
       .set(marqueeRef.current, { y: '-101%' }, 0)
@@ -202,11 +178,6 @@ function MenuItem({
 
   const handleBlur = () => {
     if (!marqueeRef.current || !marqueeInnerRef.current) return;
-    if (reducedMotion.current) {
-      gsap.set(marqueeRef.current, { y: '101%' });
-      gsap.set(marqueeInnerRef.current, { y: '0%' });
-      return;
-    }
     gsap
       .timeline({ defaults: animationDefaults })
       .to(marqueeRef.current, { y: '-101%' }, 0)
