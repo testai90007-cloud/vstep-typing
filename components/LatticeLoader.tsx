@@ -189,22 +189,24 @@ export default function LatticeLoader({
           ))}
         </span>
       </span>
-      <span className="lattice-loader__label" aria-hidden="true">
-        <span className="lattice-loader__text" data-active={status === 'working' ? '' : undefined}>
-          {label}
+      <span className="lattice-loader__caption">
+        <span className="lattice-loader__label" aria-hidden="true">
+          <span className="lattice-loader__text" data-active={status === 'working' ? '' : undefined}>
+            {label}
+          </span>
+          <span className="lattice-loader__text" data-active={status === 'done' ? '' : undefined}>
+            {doneLabel}
+          </span>
+          <span className="lattice-loader__text" data-active={status === 'error' ? '' : undefined}>
+            {errorLabel}
+          </span>
         </span>
-        <span className="lattice-loader__text" data-active={status === 'done' ? '' : undefined}>
-          {doneLabel}
-        </span>
-        <span className="lattice-loader__text" data-active={status === 'error' ? '' : undefined}>
-          {errorLabel}
-        </span>
+        {showTimer ? (
+          <span ref={timerRef} className="lattice-loader__timer" aria-hidden="true">
+            0.0s
+          </span>
+        ) : null}
       </span>
-      {showTimer ? (
-        <span ref={timerRef} className="lattice-loader__timer" aria-hidden="true">
-          0.0s
-        </span>
-      ) : null}
       <span className="lattice-loader__sr">{announce}</span>
     </span>
   );
