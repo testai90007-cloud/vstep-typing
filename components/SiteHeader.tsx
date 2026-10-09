@@ -6,7 +6,7 @@
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { signIn, signOut, useSession } from 'next-auth/react';
-import ThemeToggle from '@/components/ThemeToggle';
+import AnimatedThemeToggler from '@/components/ui/animated-theme-toggler';
 import { ShimmerButton } from '@/components/ui/shimmer-button';
 import {
   PencilSquareIcon,
@@ -91,7 +91,7 @@ export default function SiteHeader() {
         )}
 
         <div className="header-user">
-          <ThemeToggle />
+          <AnimatedThemeToggler />
           <Link
             href="/settings"
             className="icon-btn mobile-only"

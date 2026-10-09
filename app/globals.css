@@ -65,6 +65,14 @@
   --serif: var(--font-jb);
   --sans: var(--font-jb);
 }
+
+/* Magic UI AnimatedThemeToggler — required View Transitions base.
+   The reveal itself is driven by WAAPI on ::view-transition-new(root). */
+::view-transition-old(root),
+::view-transition-new(root) {
+  animation: none;
+  mix-blend-mode: normal;
+}
 html[data-theme='dark'] {
   color-scheme: dark;
   --bg: #141210;
