@@ -309,6 +309,9 @@ h1.brand .hl { color: var(--accent-strong); }
   font-variant-numeric: tabular-nums;
 }
 .test-cell:hover strong { color: var(--accent-strong); }
+/* logo-cloud pattern: number only by default, "Đề" revealed on hover */
+.test-cell .de-word { display: none; margin-right: 0.32em; font-weight: 600; }
+.test-cell:hover .de-word { display: inline; }
 .test-cell::after {
   content: '→';
   position: absolute; right: 10px; bottom: 8px;

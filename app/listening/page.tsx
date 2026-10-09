@@ -86,7 +86,7 @@ export default function ListeningListPage() {
         {LISTENING_TESTS.map((t) => (
           <Link key={t.id} href={`/listening/${t.id}`} className="test-cell">
             <strong>
-              {t.demo ? 'Demo' : t.title}
+              {t.demo ? 'Demo' : (<><span className="de-word">Đề</span>{t.title.replace(/^Đề\s+/, '')}</>)}
               {t.demo && (
                 <span className="chip" style={{ marginLeft: 6, fontSize: '0.62rem' }}>
                   LÀM QUEN

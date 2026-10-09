@@ -98,7 +98,7 @@ export default function WritingIndexPage() {
             href={`/writing/de-thi/${t.id}`}
             className="test-cell"
           >
-            <strong>{t.title}</strong>
+            <strong><span className="de-word">Đề</span>{t.title.replace(/^Đề\s+/, '')}</strong>
           </Link>
         ))}
       </div>

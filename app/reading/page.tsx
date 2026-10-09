@@ -52,7 +52,7 @@ export default function ReadingListPage() {
       <div className="test-grid">
         {READING_TESTS.map((t) => (
           <Link key={t.id} href={`/reading/${t.id}`} className="test-cell">
-            <strong>{t.title}</strong>
+            <strong><span className="de-word">Đề</span>{t.title.replace(/^Đề\s+/, '')}</strong>
           </Link>
         ))}
       </div>
