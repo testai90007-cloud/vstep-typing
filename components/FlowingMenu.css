@@ -105,7 +105,10 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .marquee {
-    display: none;
+  /* Keep the marquee visible but static: the JS shows it instantly on
+     hover/focus without the slide or scroll animation. Hiding it entirely
+     makes hover feel broken. */
+  .marquee__inner {
+    will-change: auto;
   }
 }
