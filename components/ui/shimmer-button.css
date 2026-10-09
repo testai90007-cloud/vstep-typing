@@ -126,10 +126,3 @@
     transform: translateZ(0) rotate(360deg);
   }
 }
-
-@media (prefers-reduced-motion: reduce) {
-  .shimmer-spark,
-  .shimmer-spin {
-    animation: none;
-  }
-}
