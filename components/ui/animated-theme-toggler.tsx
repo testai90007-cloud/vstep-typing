@@ -142,11 +142,12 @@ export function AnimatedThemeToggler({
   ...props
 }: AnimatedThemeTogglerProps) {
   const shape = variant ?? 'circle';
-  const [isDark, setIsDark] = useState<boolean>(
-    () =>
-      typeof document !== 'undefined' &&
-      document.documentElement.getAttribute('data-theme') === 'dark'
-  );
+  // NOTE: intentionally NOT reading the DOM in the initializer — the page is
+  // prerendered, so that would hydrate with a mismatched icon. The real theme
+  // is picked up in the mount effect below (same pattern as the old
+  // ThemeToggle, which was verified to persist correctly across reloads).
+  const [isDark, setIsDark] = useState(false);
+  const [mounted, setMounted] = useState(false);
   const buttonRef = useRef<HTMLButtonElement>(null);
   const isTransitioningRef = useRef(false);
   const activeAnimRef = useRef<Animation | null>(null);
@@ -167,14 +168,27 @@ export function AnimatedThemeToggler({
     };
   }, [cancelAnim]);
 
-  // Stay in sync if something else flips data-theme (e.g. the inline
-  // bootstrap script in the root layout).
+  // Stay in sync with the real theme. Reads localStorage after mount (belt
+  // and suspenders: also re-applies the data-theme attribute in case the
+  // layout's pre-paint script hasn't run), then observes the attribute for
+  // external changes.
   useEffect(() => {
-    const updateTheme = () => {
+    setMounted(true);
+    let dark = false;
+    try {
+      dark = window.localStorage.getItem(THEME_KEY) === 'dark';
+    } catch {
+      /* storage unavailable — stay on light */
+    }
+    if (dark) {
+      document.documentElement.setAttribute('data-theme', 'dark');
+    } else {
+      document.documentElement.removeAttribute('data-theme');
+    }
+    setIsDark(dark);
+    const observer = new MutationObserver(() => {
       setIsDark(document.documentElement.getAttribute('data-theme') === 'dark');
-    };
-    updateTheme();
-    const observer = new MutationObserver(updateTheme);
+    });
     observer.observe(document.documentElement, {
       attributes: true,
       attributeFilter: ['data-theme'],
@@ -287,7 +301,7 @@ export function AnimatedThemeToggler({
       aria-label={isDark ? 'Chuyển sang giao diện sáng' : 'Chuyển sang giao diện tối'}
       {...props}
     >
-      {isDark ? <SunIcon width={18} height={18} /> : <MoonIcon width={18} height={18} />}
+      {mounted && isDark ? <SunIcon width={18} height={18} /> : <MoonIcon width={18} height={18} />}
     </button>
   );
 }
