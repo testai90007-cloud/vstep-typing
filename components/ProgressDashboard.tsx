@@ -6,6 +6,7 @@
 
 import { useId, useState, type ReactNode } from 'react';
 import Link from 'next/link';
+import { AnimatePresence, motion } from 'motion/react';
 import {
   BookOpenIcon,
   CalendarDaysIcon,
@@ -13,7 +14,6 @@ import {
   ChevronDownIcon,
   ChevronRightIcon,
   ClockIcon,
-  FireIcon,
   MicrophoneIcon,
   PencilSquareIcon,
   SpeakerWaveIcon,
@@ -23,6 +23,12 @@ import { getTemplate } from '@/lib/templates';
 import { WRITING_TESTS } from '@/lib/writing-tests';
 import { READING_TESTS } from '@/lib/reading-tests';
 import { LISTENING_TESTS } from '@/lib/listening';
+import CountUp from '@/components/CountUp';
+import SpotlightCard from '@/components/SpotlightCard';
+import AnimatedList from '@/components/AnimatedList';
+import FluidTabs from '@/components/FluidTabs';
+import SegProgress from '@/components/SegProgress';
+import { useIsDark } from '@/components/useIsDark';
 
 export function writingTitle(templateId: string | null): string {
   if (!templateId) return '—';
@@ -256,7 +262,20 @@ function HistItem({ summary, children }: { summary: ReactNode; children: ReactNo
         <span className="hist-summary-main">{summary}</span>
         <ChevronDownIcon width={17} height={17} className="hist-chev" />
       </button>
-      {open && <div className="hist-detail">{children}</div>}
+      <AnimatePresence initial={false}>
+        {open && (
+          <motion.div
+            key="detail"
+            className="hist-detail-wrap"
+            initial={{ height: 0, opacity: 0 }}
+            animate={{ height: 'auto', opacity: 1 }}
+            exit={{ height: 0, opacity: 0 }}
+            transition={{ duration: 0.3, ease: [0.42, 0, 0.58, 1] }}
+          >
+            <div className="hist-detail">{children}</div>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   );
 }
@@ -356,6 +375,7 @@ export function DashboardView({
   userImage?: string | null;
 }) {
   const { writing, speaking, listening, reading } = data;
+  const isDark = useIsDark();
 
   const totalSessions = writing.length + speaking.length + listening.length + reading.length;
   // Note: speaking sessions don't record duration, so they contribute 0 here.
@@ -537,11 +557,11 @@ export function DashboardView({
 
 
 
-  const heroMetrics = [
-    { Icon: BookOpenIcon, value: String(totalSessions), label: 'Tổng buổi luyện' },
-    { Icon: FireIcon, value: String(streak), label: 'Ngày học liên tiếp' },
-    { Icon: ClockIcon, value: fmtTotal(totalSec), label: 'Tổng thời gian luyện' },
-    { Icon: StarIcon, value: String(weekCount), label: 'Buổi luyện tuần này' },
+  const heroMetrics: { label: string; numeric?: number; value?: string }[] = [
+    { numeric: totalSessions, label: 'Tổng buổi luyện' },
+    { numeric: streak, label: 'Ngày học liên tiếp' },
+    { value: fmtTotal(totalSec), label: 'Tổng thời gian luyện' },
+    { numeric: weekCount, label: 'Buổi luyện tuần này' },
   ];
 
   const tabs: { id: HistTab; label: string; count: number }[] = [
@@ -711,11 +731,17 @@ export function DashboardView({
             </div>
           ) : (
             <>
-              {/* ---- hero metrics: hairline stat band ---- */}
+              {/* ---- hero metrics: hairline stat band (CountUp numbers) ---- */}
               <div className="stat-band" style={{ marginTop: 26 }}>
-                {heroMetrics.map(({ value, label }) => (
+                {heroMetrics.map(({ label, numeric, value }) => (
                   <div key={label}>
-                    <b>{value}</b>
+                    <b>
+                      {numeric != null ? (
+                        <CountUp to={numeric} locales="vi-VN" />
+                      ) : (
+                        value
+                      )}
+                    </b>
                     <span>{label}</span>
                   </div>
                 ))}
@@ -749,7 +775,18 @@ export function DashboardView({
                     avg10,
                     last,
                   }) => (
-                    <Link key={id} href={href} className="psk-card">
+                    <SpotlightCard
+                      key={id}
+                      className="psk-spot"
+                      theme={isDark ? 'dark' : 'light'}
+                      spotlightColor={isDark ? '#a78bfa' : '#8b5cf6'}
+                      spotlightSize={260}
+                    >
+                      <Link
+                        href={href}
+                        className="psk-cardlink"
+                        aria-label={`${title} — ${count} buổi luyện`}
+                      >
                       <div className="psk-top">
                         <span className="psk-name">
                           <span className="icon-badge sm">
@@ -796,7 +833,8 @@ export function DashboardView({
                           />
                         </div>
                       </div>
-                    </Link>
+                      </Link>
+                    </SpotlightCard>
                   )
                 )}
               </div>
@@ -909,23 +947,15 @@ export function DashboardView({
                   </p>
                 ) : (
                   <>
-                    <div
-                      className="stackbar"
-                      role="img"
-                      aria-label={dist.map((d) => `${d.label}: ${d.count}`).join(', ')}
-                    >
-                      {dist.map((d) =>
-                        d.count > 0 ? (
-                          <i
-                            key={d.id}
-                            style={{
-                              width: `${(d.count / rangeCount) * 100}%`,
-                              background: d.color,
-                            }}
-                          />
-                        ) : null
-                      )}
-                    </div>
+                    <SegProgress
+                      key={statRange}
+                      segments={dist.map((d) => ({
+                        color: d.color,
+                        value: d.count,
+                        label: d.label,
+                      }))}
+                      ariaLabel={dist.map((d) => `${d.label}: ${d.count}`).join(', ')}
+                    />
                     <div className="stack-legend">
                       {dist.map((d) => (
                         <span key={d.id} className="sl-item">
@@ -960,7 +990,7 @@ export function DashboardView({
                     Chưa có hoạt động nào.
                   </p>
                 ) : (
-                  <div className="recent-simple">
+                  <AnimatedList className="recent-simple" delay={90}>
                     {activities.slice(0, 5).map((a) => (
                       <Link key={a.key} href={a.href} className="rs-row">
                         <i
@@ -976,7 +1006,7 @@ export function DashboardView({
                         </span>
                       </Link>
                     ))}
-                  </div>
+                  </AnimatedList>
                 )}
               </div>
 
@@ -993,20 +1023,20 @@ export function DashboardView({
                   <ChevronRightIcon width={15} height={15} />
                 </Link>
               </div>
-              <div className="seg-tabs" role="tablist" aria-label="Lịch sử theo kỹ năng">
-                {tabs.map((t) => (
-                  <button
-                    key={t.id}
-                    role="tab"
-                    aria-selected={tab === t.id}
-                    className={tab === t.id ? 'active' : ''}
-                    onClick={() => setTab(t.id)}
-                  >
-                    {t.label}
-                    <span className="tab-count">{t.count}</span>
-                  </button>
-                ))}
-              </div>
+              <FluidTabs
+                tabs={tabs.map((t) => ({
+                  id: t.id,
+                  label: (
+                    <>
+                      {t.label}
+                      <span className="tab-count">{t.count}</span>
+                    </>
+                  ),
+                }))}
+                activeId={tab}
+                onChange={(id) => setTab(id as HistTab)}
+                ariaLabel="Lịch sử theo kỹ năng"
+              />
 
               {tab === 'writing' &&
                 (writing.length === 0 ? (

@@ -1,0 +1,23 @@
+/* SegProgress — Animata Progress styles (adapted, stacked version).
+   A row of 2px bars on a hairline track; bars light up in their skill color
+   left-to-right with a stagger when mounted. */
+
+.segbar {
+  display: flex;
+  gap: 2px;
+  height: 12px;
+  overflow: hidden;
+}
+
+.segbar i {
+  flex: none;
+  width: 2px;
+  height: 100%;
+  border-radius: 1px;
+  background: var(--line);
+  transition: background-color 0.25s ease;
+}
+
+.segbar i.on {
+  background: var(--c);
+}

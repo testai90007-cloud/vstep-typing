@@ -1,0 +1,6 @@
+/* AnimatedList — one-pass staggered reveal list. Items are plain block
+   wrappers; the consumer styles the rows themselves. */
+
+.animated-list {
+  display: grid;
+}
