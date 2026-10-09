@@ -942,7 +942,7 @@ export function DashboardView({
                   <div className="heat-legend" aria-hidden="true">
                     <span>Ít</span>
                     {[0, 1, 2, 3].map((l) => (
-                      <span key={l} className={`heat-cell l${l}`} />
+                      <span key={l} className={`heat-sw l${l}`} />
                     ))}
                     <span>Nhiều</span>
                   </div>
