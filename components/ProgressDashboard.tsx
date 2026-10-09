@@ -14,6 +14,7 @@ import {
   ChevronDownIcon,
   ChevronRightIcon,
   ClockIcon,
+  FireIcon,
   MicrophoneIcon,
   PencilSquareIcon,
   SpeakerWaveIcon,
@@ -557,13 +558,6 @@ export function DashboardView({
 
 
 
-  const heroMetrics: { label: string; numeric?: number; value?: string }[] = [
-    { numeric: totalSessions, label: 'Tổng buổi luyện' },
-    { numeric: streak, label: 'Ngày học liên tiếp' },
-    { value: fmtTotal(totalSec), label: 'Tổng thời gian luyện' },
-    { numeric: weekCount, label: 'Buổi luyện tuần này' },
-  ];
-
   const tabs: { id: HistTab; label: string; count: number }[] = [
     { id: 'writing', label: 'Viết', count: writing.length },
     { id: 'speaking', label: 'Nói', count: speaking.length },
@@ -671,6 +665,16 @@ export function DashboardView({
     Đọc: '#22c55e',
   };
 
+  /* last 7 days for the hero mini-bars */
+  const DOW_VN = ['CN', 'T2', 'T3', 'T4', 'T5', 'T6', 'T7'];
+  const todayD = startOfDay(new Date());
+  const last7 = Array.from({ length: 7 }, (_, k) => {
+    const d = new Date(todayD.getTime() - (6 - k) * 86400000);
+    const key = dayKey(d);
+    return { key, dow: DOW_VN[d.getDay()], count: perDay.get(key) || 0, today: k === 6 };
+  });
+  const max7 = Math.max(1, ...last7.map((d) => d.count));
+
   return (
     <>
       <div className="prog-top">
@@ -731,20 +735,68 @@ export function DashboardView({
             </div>
           ) : (
             <>
-              {/* ---- hero metrics: hairline stat band (CountUp numbers) ---- */}
-              <div className="stat-band" style={{ marginTop: 26 }}>
-                {heroMetrics.map(({ label, numeric, value }) => (
-                  <div key={label}>
-                    <b>
-                      {numeric != null ? (
-                        <CountUp to={numeric} locales="vi-VN" />
-                      ) : (
-                        value
-                      )}
-                    </b>
-                    <span>{label}</span>
+              {/* ---- hero: overview bento (giant total + 7-day bars) ---- */}
+              <div className="prog-hero">
+                <div className="card ph-main">
+                  <p className="ph-label">Tổng buổi luyện</p>
+                  <p className="ph-giant">
+                    <CountUp to={totalSessions} locales="vi-VN" />
+                  </p>
+                  <div className="ph-week" role="img" aria-label="Số buổi luyện 7 ngày qua">
+                    {last7.map((d, k) => (
+                      <div
+                        key={d.key}
+                        className="ph-day"
+                        title={`${d.dow}: ${d.count} buổi`}
+                      >
+                        <span className="ph-barwrap">
+                          <i
+                            className={d.today ? 'today' : d.count > 0 ? 'has' : ''}
+                            style={{
+                              height: `${Math.max(6, (d.count / max7) * 100)}%`,
+                              animationDelay: `${k * 55}ms`,
+                            }}
+                          />
+                        </span>
+                        <span className="ph-dow">{d.dow}</span>
+                      </div>
+                    ))}
                   </div>
-                ))}
+                  <p className="ph-cap">{weekCount} buổi trong 7 ngày qua</p>
+                </div>
+                <div className="card ph-side">
+                  <div className="ph-row">
+                    <span className="icon-badge sm">
+                      <FireIcon width={18} height={18} strokeWidth={1.8} />
+                    </span>
+                    <div className="ph-row-tx">
+                      <b>
+                        <CountUp to={streak} locales="vi-VN" />
+                      </b>
+                      <span>ngày học liên tiếp</span>
+                    </div>
+                  </div>
+                  <div className="ph-row">
+                    <span className="icon-badge sm">
+                      <ClockIcon width={18} height={18} strokeWidth={1.8} />
+                    </span>
+                    <div className="ph-row-tx">
+                      <b>
+                        <CountUp to={weekCount} locales="vi-VN" />
+                      </b>
+                      <span>buổi tuần này</span>
+                    </div>
+                  </div>
+                  <div className="ph-row">
+                    <span className="icon-badge sm">
+                      <ChartBarIcon width={18} height={18} strokeWidth={1.8} />
+                    </span>
+                    <div className="ph-row-tx">
+                      <b>{fmtTotal(totalSec)}</b>
+                      <span>tổng thời gian luyện</span>
+                    </div>
+                  </div>
+                </div>
               </div>
 
               {/* ---- skills ---- */}
@@ -897,6 +949,9 @@ export function DashboardView({
                 </div>
               </div>
 
+              {/* ---- stats + recent: two-column ---- */}
+              <div className="prog-cols">
+                <div>
               {/* ---- stats ---- */}
               <div className="sec-head">
                 <h2 className="section-title" style={{ margin: 0 }}>
@@ -971,6 +1026,8 @@ export function DashboardView({
                 )}
               </div>
 
+                </div>
+                <div>
               {/* ---- recent activity (slim) ---- */}
               <div className="sec-head">
                 <h2 className="section-title" style={{ margin: 0 }}>
@@ -1008,6 +1065,9 @@ export function DashboardView({
                     ))}
                   </AnimatedList>
                 )}
+              </div>
+
+                </div>
               </div>
 
               {/* ---- history tabs ---- */}
