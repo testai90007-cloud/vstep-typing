@@ -13,7 +13,6 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { MoonIcon, SunIcon } from '@heroicons/react/24/outline';
-import { flushSync } from 'react-dom';
 
 export type TransitionVariant =
   | 'circle'
@@ -134,6 +133,100 @@ function getThemeTransitionClipPaths(
   }
 }
 
+/**
+ * Flip the site theme with the Magic UI View Transitions reveal.
+ * Shared by <AnimatedThemeToggler> and the homepage dock's theme item.
+ * The reveal expands from (cx, cy) — pass the clicked button's center, or
+ * omit to expand from the viewport center.
+ */
+let flipLock = false;
+let flipAnim: Animation | null = null;
+
+export function flipThemeAnimated(
+  cx?: number,
+  cy?: number,
+  duration = 400,
+  variant: TransitionVariant = 'circle'
+): void {
+  if (typeof document === 'undefined') return;
+  const root = document.documentElement;
+  if (flipLock || root.dataset.magicuiThemeVt === 'active') return;
+
+  // innerWidth/innerHeight (not visualViewport): percentages must resolve
+  // against the snapshot reference box, which includes classic scrollbars.
+  const viewportWidth = window.innerWidth;
+  const viewportHeight = window.innerHeight;
+  const x = cx ?? viewportWidth / 2;
+  const y = cy ?? viewportHeight / 2;
+  const maxRadius = Math.hypot(Math.max(x, viewportWidth - x), Math.max(y, viewportHeight - y));
+
+  const applyTheme = () => {
+    // Read the live DOM (not React state) so concurrent callers agree.
+    const nextDark = root.getAttribute('data-theme') !== 'dark';
+    if (nextDark) {
+      root.setAttribute('data-theme', 'dark');
+    } else {
+      root.removeAttribute('data-theme');
+    }
+    try {
+      window.localStorage.setItem(THEME_KEY, nextDark ? 'dark' : 'light');
+    } catch {
+      /* storage unavailable — theme still applies for this session */
+    }
+    // NOTE: no React setState here — <AnimatedThemeToggler> syncs its icon
+    // via its data-theme MutationObserver, so no flushSync is needed.
+  };
+
+  if (typeof document.startViewTransition !== 'function') {
+    applyTheme();
+    return;
+  }
+
+  const clipPath = getThemeTransitionClipPaths(variant, x, y, maxRadius, viewportWidth, viewportHeight);
+
+  root.dataset.magicuiThemeVt = 'active';
+  root.style.setProperty('--magicui-theme-toggle-vt-duration', `${duration}ms`);
+  // Pin the collapsed clip-path via CSS so Firefox does not paint the new
+  // theme unclipped between snapshot and the ready.then() JS animation.
+  root.style.setProperty('--magicui-theme-vt-clip-from', clipPath[0]);
+  const cleanup = () => {
+    flipLock = false;
+    delete root.dataset.magicuiThemeVt;
+    root.style.removeProperty('--magicui-theme-toggle-vt-duration');
+    root.style.removeProperty('--magicui-theme-vt-clip-from');
+    flipAnim?.cancel();
+    flipAnim = null;
+  };
+
+  flipLock = true;
+  const transition = document.startViewTransition(() => {
+    applyTheme();
+  });
+  if (typeof transition?.finished?.finally === 'function') {
+    transition.finished.finally(cleanup).catch(() => {});
+  } else {
+    cleanup();
+  }
+
+  const ready = transition?.ready;
+  if (ready && typeof ready.then === 'function') {
+    ready
+      .then(() => {
+        flipAnim = root.animate(
+          { clipPath },
+          {
+            duration,
+            // Star: linear avoids easing overshoot that fights polygon interpolation at t→1; VT group duration is synced above.
+            easing: variant === 'star' ? 'linear' : 'ease-in-out',
+            fill: 'forwards',
+            pseudoElement: '::view-transition-new(root)',
+          }
+        );
+      })
+      .catch(() => {});
+  }
+}
+
 export function AnimatedThemeToggler({
   className,
   duration = 400,
@@ -149,24 +242,6 @@ export function AnimatedThemeToggler({
   const [isDark, setIsDark] = useState(false);
   const [mounted, setMounted] = useState(false);
   const buttonRef = useRef<HTMLButtonElement>(null);
-  const isTransitioningRef = useRef(false);
-  const activeAnimRef = useRef<Animation | null>(null);
-
-  const cancelAnim = useCallback(() => {
-    activeAnimRef.current?.cancel();
-    activeAnimRef.current = null;
-  }, []);
-
-  useEffect(() => {
-    return () => {
-      cancelAnim();
-      const root = document.documentElement;
-      if (root.dataset.magicuiThemeVt !== 'active') return;
-      delete root.dataset.magicuiThemeVt;
-      root.style.removeProperty('--magicui-theme-toggle-vt-duration');
-      root.style.removeProperty('--magicui-theme-vt-clip-from');
-    };
-  }, [cancelAnim]);
 
   // Stay in sync with the real theme. Reads localStorage after mount (belt
   // and suspenders: also re-applies the data-theme attribute in case the
@@ -198,98 +273,19 @@ export function AnimatedThemeToggler({
 
   const toggleTheme = useCallback(() => {
     const button = buttonRef.current;
-    if (
-      !button ||
-      isTransitioningRef.current ||
-      document.documentElement.dataset.magicuiThemeVt === 'active'
-    )
-      return;
-
     // innerWidth/innerHeight (not visualViewport): percentages must resolve
     // against the snapshot reference box, which includes classic scrollbars.
     const viewportWidth = window.innerWidth;
     const viewportHeight = window.innerHeight;
-
-    let x: number;
-    let y: number;
-    if (fromCenter) {
-      x = viewportWidth / 2;
-      y = viewportHeight / 2;
-    } else {
+    let x = viewportWidth / 2;
+    let y = viewportHeight / 2;
+    if (!fromCenter && button) {
       const { top, left, width, height } = button.getBoundingClientRect();
       x = left + width / 2;
       y = top + height / 2;
     }
-
-    const maxRadius = Math.hypot(Math.max(x, viewportWidth - x), Math.max(y, viewportHeight - y));
-
-    const applyTheme = () => {
-      const nextDark = !isDark;
-      // Apply synchronously so the View Transitions API snapshots the new
-      // theme inside the startViewTransition callback.
-      if (nextDark) {
-        document.documentElement.setAttribute('data-theme', 'dark');
-      } else {
-        document.documentElement.removeAttribute('data-theme');
-      }
-      try {
-        window.localStorage.setItem(THEME_KEY, nextDark ? 'dark' : 'light');
-      } catch {
-        /* storage unavailable — theme still applies for this session */
-      }
-      setIsDark(nextDark);
-    };
-
-    if (typeof document.startViewTransition !== 'function') {
-      applyTheme();
-      return;
-    }
-
-    const clipPath = getThemeTransitionClipPaths(shape, x, y, maxRadius, viewportWidth, viewportHeight);
-
-    const root = document.documentElement;
-    root.dataset.magicuiThemeVt = 'active';
-    root.style.setProperty('--magicui-theme-toggle-vt-duration', `${duration}ms`);
-    // Pin the collapsed clip-path via CSS so Firefox does not paint the new
-    // theme unclipped between snapshot and the ready.then() JS animation.
-    root.style.setProperty('--magicui-theme-vt-clip-from', clipPath[0]);
-    const cleanup = () => {
-      isTransitioningRef.current = false;
-      delete root.dataset.magicuiThemeVt;
-      root.style.removeProperty('--magicui-theme-toggle-vt-duration');
-      root.style.removeProperty('--magicui-theme-vt-clip-from');
-      cancelAnim();
-    };
-
-    isTransitioningRef.current = true;
-    const transition = document.startViewTransition(() => {
-      flushSync(applyTheme);
-    });
-    if (typeof transition?.finished?.finally === 'function') {
-      transition.finished.finally(cleanup).catch(() => {});
-    } else {
-      cleanup();
-    }
-
-    const ready = transition?.ready;
-    if (ready && typeof ready.then === 'function') {
-      ready
-        .then(() => {
-          const anim = document.documentElement.animate(
-            { clipPath },
-            {
-              duration,
-              // Star: linear avoids easing overshoot that fights polygon interpolation at t→1; VT group duration is synced above.
-              easing: shape === 'star' ? 'linear' : 'ease-in-out',
-              fill: 'forwards',
-              pseudoElement: '::view-transition-new(root)',
-            }
-          );
-          activeAnimRef.current = anim;
-        })
-        .catch(() => {});
-    }
-  }, [shape, fromCenter, duration, isDark, cancelAnim]);
+    flipThemeAnimated(x, y, duration, shape);
+  }, [shape, fromCenter, duration]);
 
   return (
     <button

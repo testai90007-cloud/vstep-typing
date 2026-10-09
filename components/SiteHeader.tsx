@@ -7,6 +7,7 @@ import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { signIn, signOut, useSession } from 'next-auth/react';
 import AnimatedThemeToggler from '@/components/ui/animated-theme-toggler';
+import HomeDock from '@/components/HomeDock';
 import { ShimmerButton } from '@/components/ui/shimmer-button';
 import {
   PencilSquareIcon,
@@ -63,12 +64,15 @@ function GoogleIcon() {
 export default function SiteHeader() {
   const pathname = usePathname();
   const { data: session, status } = useSession();
-  // The home page has its own skill navigation — hide the nav links there
-  // to avoid duplication, keeping only the logo and sign-in.
-  const hideNav = pathname === '/';
+  // The home page uses the floating Dock instead of the top bar; every other
+  // page keeps the classic header nav.
+  const isHome = pathname === '/';
 
   return (
     <>
+      {isHome ? (
+        <HomeDock />
+      ) : (
       <header className="site-header">
       <div className="site-header-inner">
         <Link href="/" className="logo" aria-label="Luyện VSTEP — trang chủ">
@@ -76,7 +80,7 @@ export default function SiteHeader() {
           <span className="logo-text">Luyện VSTEP</span>
         </Link>
 
-        {!hideNav && (
+        {!isHome && (
           <nav className="site-nav" aria-label="Điều hướng chính">
             {NAV.map(({ href, label, Icon }) => {
               const active = pathname === href || pathname.startsWith(href + '/');
@@ -131,6 +135,7 @@ export default function SiteHeader() {
         </div>
       </div>
       </header>
+      )}
 
       {/* bottom tab bar — touch-friendly skill switching on narrow screens.
           Sibling of the header (not inside it): the header's backdrop-filter
