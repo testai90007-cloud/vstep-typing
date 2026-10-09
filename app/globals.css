@@ -295,6 +295,9 @@ h1.brand .hl { color: var(--accent-strong); }
   gap: 12px;
   min-height: 148px;
 }
+.tpl-card .spell-badge {
+  align-self: flex-start;
+}
 .tpl-swap {
   margin-top: 2px;
 }
