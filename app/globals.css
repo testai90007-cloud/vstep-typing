@@ -288,7 +288,6 @@ h1.brand .hl { color: var(--accent-strong); }
   gap: 12px;
 }
 .test-cell {
-  position: relative;
   display: flex; flex-direction: column; align-items: center; gap: 4px;
   padding: 18px 10px 15px;
   background: var(--paper);
@@ -297,7 +296,6 @@ h1.brand .hl { color: var(--accent-strong); }
   box-shadow: var(--shadow);
   text-decoration: none; color: inherit;
   transition: border-color 0.16s ease, transform 0.16s ease, box-shadow 0.16s ease;
-  overflow: hidden;
 }
 .test-cell:hover {
   border-color: var(--accent);
@@ -309,18 +307,23 @@ h1.brand .hl { color: var(--accent-strong); }
   font-variant-numeric: tabular-nums;
 }
 .test-cell:hover strong { color: var(--accent-strong); }
-/* logo-cloud pattern: number only by default, "Đề" revealed on hover */
-.test-cell .de-word { display: none; margin-right: 0.32em; font-weight: 600; }
-.test-cell:hover .de-word { display: inline; }
-.test-cell::after {
-  content: '→';
-  position: absolute; right: 10px; bottom: 8px;
-  font-size: 0.85rem;
-  color: var(--accent-strong); opacity: 0; transform: translateX(-4px);
-  transition: opacity 0.16s ease, transform 0.16s ease;
-  pointer-events: none;
+/* logo-cloud pattern: number only by default, "Đề" slides in from the left on hover */
+.test-cell .de-word {
+  display: inline-block;
+  max-width: 0;
+  margin-right: 0;
+  opacity: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  vertical-align: bottom;
+  font-weight: 600;
+  transition: max-width 0.28s ease, margin-right 0.28s ease, opacity 0.22s ease;
 }
-.test-cell:hover::after { opacity: 1; transform: none; }
+.test-cell:hover .de-word {
+  max-width: 2.5em;
+  margin-right: 0.32em;
+  opacity: 1;
+}
 
 a.card.lift:hover, .card.lift:hover {
   border-color: var(--faint);
