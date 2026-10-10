@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import { auth } from '@/lib/auth';
-import { getSql } from '@/lib/db';
+import { ensureUser, getSql } from '@/lib/db';
 
 export const runtime = 'nodejs';
 
@@ -16,6 +16,13 @@ export async function GET() {
   }
 
   try {
+    // Self-healing: re-key sessions saved under pre-fix random user ids.
+    await ensureUser(sql, {
+      id: session.user.id,
+      email: session.user.email,
+      name: session.user.name,
+      image: session.user.image,
+    });
     const rows = await sql`
       SELECT id, part, prompt, transcript, scores, overall, feedback, mode, created_at
       FROM speaking_sessions

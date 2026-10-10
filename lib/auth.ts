@@ -26,8 +26,17 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
     }),
   ],
   callbacks: {
+    async jwt({ token, account }) {
+      // Auth.js v5 mints user.id as a RANDOM UUID on every OAuth login and
+      // uses it for token.sub — that orphaned all saved progress on re-login.
+      // Pin the subject to the stable Google `sub` instead.
+      if (account?.providerAccountId) {
+        token.sub = account.providerAccountId;
+      }
+      return token;
+    },
     async session({ session, token }) {
-      // Expose the Google `sub` as session.user.id for DB lookups.
+      // Expose the stable Google `sub` as session.user.id for DB lookups.
       if (session.user && token.sub) {
         session.user.id = token.sub;
       }

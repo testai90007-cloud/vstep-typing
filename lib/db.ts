@@ -30,10 +30,23 @@ export interface SessionUser {
   image?: string | null;
 }
 
-/** Upsert the signed-in Google user (id = Google `sub`). No-op without a DB. */
+/** Upsert the signed-in Google user (id = stable Google `sub`). No-op without a DB. */
 export async function ensureUser(sql: NeonQueryFunction<false, false>, user: SessionUser) {
   await sql`INSERT INTO users (id, email, name, image)
             VALUES (${user.id}, ${user.email ?? null}, ${user.name ?? null}, ${user.image ?? null})
             ON CONFLICT (id) DO UPDATE
             SET email = EXCLUDED.email, name = EXCLUDED.name, image = EXCLUDED.image`;
+  // Self-healing: before the auth fix, logins minted a random user id, so old
+  // sessions sit under throwaway user rows. Same Google account = same email,
+  // so re-key those sessions to the stable id once and drop the dupes.
+  if (user.email) {
+    const dupes = await sql`SELECT id FROM users WHERE email = ${user.email} AND id <> ${user.id}`;
+    for (const d of dupes as { id: string }[]) {
+      await sql`UPDATE writing_sessions SET user_id = ${user.id} WHERE user_id = ${d.id}`;
+      await sql`UPDATE speaking_sessions SET user_id = ${user.id} WHERE user_id = ${d.id}`;
+      await sql`UPDATE listening_sessions SET user_id = ${user.id} WHERE user_id = ${d.id}`;
+      await sql`UPDATE reading_sessions SET user_id = ${user.id} WHERE user_id = ${d.id}`;
+      await sql`DELETE FROM users WHERE id = ${d.id}`;
+    }
+  }
 }
