@@ -31,6 +31,7 @@ import {
 } from '@heroicons/react/24/outline';
 import { TEMPLATES, getTemplate, wholeText, type WritingTemplate } from '@/lib/templates';
 import { getExample } from '@/lib/examples';
+import { useIsDark } from '@/components/useIsDark';
 import CountUp from '@/components/CountUp';
 import { SmoothTab } from '@/components/SmoothTab';
 import { StepIndicator, type StepState } from '@/components/StepIndicator';
@@ -122,7 +123,17 @@ export default function PracticePage() {
   const [finished, setFinished] = useState(false);
   const [errorWords, setErrorWords] = useState<string[]>([]);
   const [revealed, setRevealed] = useState(false);
-  const [dark, setDark] = useState(false);
+  // theme: follow the site-wide toggle (html[data-theme] + localStorage 'vstep_theme')
+  const dark = useIsDark();
+  function toggleDark() {
+    const next = !dark;
+    document.documentElement.setAttribute('data-theme', next ? 'dark' : 'light');
+    try {
+      localStorage.setItem('vstep_theme', next ? 'dark' : 'light');
+    } catch {
+      /* private mode */
+    }
+  }
   const [toast, setToast] = useState('');
   const [dbNote, setDbNote] = useState(false);
   const [finalStats, setFinalStats] = useState({ accuracy: 0, durationSec: 0, words: 0 });
@@ -151,16 +162,6 @@ export default function PracticePage() {
     setCompleted(new Array(template.sections.length).fill(false));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [typeId]);
-
-  // dark mode
-  useEffect(() => {
-    const s = localStorage.getItem('vstep-theme');
-    if (s === 'dark' || s === 'light') setDark(s === 'dark');
-  }, []);
-  useEffect(() => {
-    document.documentElement.dataset.theme = dark ? 'dark' : 'light';
-    localStorage.setItem('vstep-theme', dark ? 'dark' : 'light');
-  }, [dark]);
 
   function showToast(msg: string) {
     setToast(msg);
@@ -429,7 +430,7 @@ export default function PracticePage() {
         </Link>
         <button
           className="icon-btn"
-          onClick={() => setDark(!dark)}
+          onClick={toggleDark}
           title={dark ? 'Chế độ sáng' : 'Chế độ tối'}
           aria-label={dark ? 'Chế độ sáng' : 'Chế độ tối'}
         >
