@@ -1,226 +1,55 @@
 // ---------------------------------------------------------------------------
-// 200 VSTEP Reading tests (Đề 001 → Đề 200), parsed from the user-uploaded docx.
-// VSTEP format: 4 passages x 10 questions = 40 questions, 60 minutes.
+// Reading test bank: 1000 tests (Đề 0001–1000), GENERATED from the four
+// VSTEP-Reading-De-*.docx files by scripts/parse-reading-docx.py — do NOT
+// hand-edit. Re-run the parser after changing the source docx files.
+//
+// The bank is ~36 MB, far too large to bundle into one page chunk, so tests
+// live in chunked files (lib/reading-tests/data-*.ts) and are loaded on
+// demand via loadReadingTest(). The list page uses READING_TITLE_LIST in
+// lib/test-titles.ts and never imports this bank.
 // ---------------------------------------------------------------------------
 
 export interface ReadingQuestion {
   q: string;
-  options: string[]; // 4 options, A/B/C/D
-  answer: number; // index of the correct option (0-3)
+  options: string[];
+  answer: number;
 }
 
 export interface ReadingPassage {
   title: string;
   paragraphs: string[];
-  questions: ReadingQuestion[]; // 10
+  questions: ReadingQuestion[];
 }
 
 export interface ReadingTest {
-  id: string; // 'rd-001'
-  num: number; // 1
-  title: string; // 'Đề 001'
-  timeMin: number; // 60
-  parts: ReadingPassage[]; // 4
+  id: string;
+  num: number;
+  title: string;
+  timeMin: number;
+  parts: ReadingPassage[];
 }
 
-import { DATA_01 as R_DATA_01 } from './reading-tests/data-01';
-import { DATA_02 as R_DATA_02 } from './reading-tests/data-02';
-import { DATA_03 as R_DATA_03 } from './reading-tests/data-03';
-import { DATA_04 as R_DATA_04 } from './reading-tests/data-04';
-import { DATA_05 as R_DATA_05 } from './reading-tests/data-05';
-import { DATA_06 as R_DATA_06 } from './reading-tests/data-06';
-import { DATA_07 as R_DATA_07 } from './reading-tests/data-07';
-import { DATA_08 as R_DATA_08 } from './reading-tests/data-08';
-import { DATA_09 as R_DATA_09 } from './reading-tests/data-09';
-import { DATA_10 as R_DATA_10 } from './reading-tests/data-10';
-import { DATA_11 as R_DATA_11 } from './reading-tests/data-11';
-import { DATA_12 as R_DATA_12 } from './reading-tests/data-12';
-import { DATA_13 as R_DATA_13 } from './reading-tests/data-13';
-import { DATA_14 as R_DATA_14 } from './reading-tests/data-14';
-import { DATA_15 as R_DATA_15 } from './reading-tests/data-15';
-import { DATA_16 as R_DATA_16 } from './reading-tests/data-16';
-import { DATA_17 as R_DATA_17 } from './reading-tests/data-17';
-import { DATA_18 as R_DATA_18 } from './reading-tests/data-18';
-import { DATA_19 as R_DATA_19 } from './reading-tests/data-19';
-import { DATA_20 as R_DATA_20 } from './reading-tests/data-20';
-import { DATA_21 as R_DATA_21 } from './reading-tests/data-21';
-import { DATA_22 as R_DATA_22 } from './reading-tests/data-22';
-import { DATA_23 as R_DATA_23 } from './reading-tests/data-23';
-import { DATA_24 as R_DATA_24 } from './reading-tests/data-24';
-import { DATA_25 as R_DATA_25 } from './reading-tests/data-25';
-import { DATA_26 as R_DATA_26 } from './reading-tests/data-26';
-import { DATA_27 as R_DATA_27 } from './reading-tests/data-27';
-import { DATA_28 as R_DATA_28 } from './reading-tests/data-28';
-import { DATA_29 as R_DATA_29 } from './reading-tests/data-29';
-import { DATA_30 as R_DATA_30 } from './reading-tests/data-30';
-import { DATA_31 as R_DATA_31 } from './reading-tests/data-31';
-import { DATA_32 as R_DATA_32 } from './reading-tests/data-32';
-import { DATA_33 as R_DATA_33 } from './reading-tests/data-33';
-import { DATA_34 as R_DATA_34 } from './reading-tests/data-34';
-import { DATA_35 as R_DATA_35 } from './reading-tests/data-35';
-import { DATA_36 as R_DATA_36 } from './reading-tests/data-36';
-import { DATA_37 as R_DATA_37 } from './reading-tests/data-37';
-import { DATA_38 as R_DATA_38 } from './reading-tests/data-38';
-import { DATA_39 as R_DATA_39 } from './reading-tests/data-39';
-import { DATA_40 as R_DATA_40 } from './reading-tests/data-40';
-import { DATA_41 as R_DATA_41 } from './reading-tests/data-41';
-import { DATA_42 as R_DATA_42 } from './reading-tests/data-42';
-import { DATA_43 as R_DATA_43 } from './reading-tests/data-43';
-import { DATA_44 as R_DATA_44 } from './reading-tests/data-44';
-import { DATA_45 as R_DATA_45 } from './reading-tests/data-45';
-import { DATA_46 as R_DATA_46 } from './reading-tests/data-46';
-import { DATA_47 as R_DATA_47 } from './reading-tests/data-47';
-import { DATA_48 as R_DATA_48 } from './reading-tests/data-48';
-import { DATA_49 as R_DATA_49 } from './reading-tests/data-49';
-import { DATA_50 as R_DATA_50 } from './reading-tests/data-50';
-import { DATA_51 as R_DATA_51 } from './reading-tests/data-51';
-import { DATA_52 as R_DATA_52 } from './reading-tests/data-52';
-import { DATA_53 as R_DATA_53 } from './reading-tests/data-53';
-import { DATA_54 as R_DATA_54 } from './reading-tests/data-54';
-import { DATA_55 as R_DATA_55 } from './reading-tests/data-55';
-import { DATA_56 as R_DATA_56 } from './reading-tests/data-56';
-import { DATA_57 as R_DATA_57 } from './reading-tests/data-57';
-import { DATA_58 as R_DATA_58 } from './reading-tests/data-58';
-import { DATA_59 as R_DATA_59 } from './reading-tests/data-59';
-import { DATA_60 as R_DATA_60 } from './reading-tests/data-60';
-import { DATA_61 as R_DATA_61 } from './reading-tests/data-61';
-import { DATA_62 as R_DATA_62 } from './reading-tests/data-62';
-import { DATA_63 as R_DATA_63 } from './reading-tests/data-63';
-import { DATA_64 as R_DATA_64 } from './reading-tests/data-64';
-import { DATA_65 as R_DATA_65 } from './reading-tests/data-65';
-import { DATA_66 as R_DATA_66 } from './reading-tests/data-66';
-import { DATA_67 as R_DATA_67 } from './reading-tests/data-67';
-import { DATA_68 as R_DATA_68 } from './reading-tests/data-68';
-import { DATA_69 as R_DATA_69 } from './reading-tests/data-69';
-import { DATA_70 as R_DATA_70 } from './reading-tests/data-70';
-import { DATA_71 as R_DATA_71 } from './reading-tests/data-71';
-import { DATA_72 as R_DATA_72 } from './reading-tests/data-72';
-import { DATA_73 as R_DATA_73 } from './reading-tests/data-73';
-import { DATA_74 as R_DATA_74 } from './reading-tests/data-74';
-import { DATA_75 as R_DATA_75 } from './reading-tests/data-75';
-import { DATA_76 as R_DATA_76 } from './reading-tests/data-76';
-import { DATA_77 as R_DATA_77 } from './reading-tests/data-77';
-import { DATA_78 as R_DATA_78 } from './reading-tests/data-78';
-import { DATA_79 as R_DATA_79 } from './reading-tests/data-79';
-import { DATA_80 as R_DATA_80 } from './reading-tests/data-80';
-import { DATA_81 as R_DATA_81 } from './reading-tests/data-81';
-import { DATA_82 as R_DATA_82 } from './reading-tests/data-82';
-import { DATA_83 as R_DATA_83 } from './reading-tests/data-83';
-import { DATA_84 as R_DATA_84 } from './reading-tests/data-84';
-import { DATA_85 as R_DATA_85 } from './reading-tests/data-85';
-import { DATA_86 as R_DATA_86 } from './reading-tests/data-86';
-import { DATA_87 as R_DATA_87 } from './reading-tests/data-87';
-import { DATA_88 as R_DATA_88 } from './reading-tests/data-88';
-import { DATA_89 as R_DATA_89 } from './reading-tests/data-89';
-import { DATA_90 as R_DATA_90 } from './reading-tests/data-90';
-import { DATA_91 as R_DATA_91 } from './reading-tests/data-91';
-import { DATA_92 as R_DATA_92 } from './reading-tests/data-92';
-import { DATA_93 as R_DATA_93 } from './reading-tests/data-93';
-import { DATA_94 as R_DATA_94 } from './reading-tests/data-94';
-import { DATA_95 as R_DATA_95 } from './reading-tests/data-95';
-import { DATA_96 as R_DATA_96 } from './reading-tests/data-96';
-import { DATA_97 as R_DATA_97 } from './reading-tests/data-97';
-import { DATA_98 as R_DATA_98 } from './reading-tests/data-98';
-import { DATA_99 as R_DATA_99 } from './reading-tests/data-99';
+export const READING_TEST_COUNT = 1000;
 
-export const READING_TESTS: ReadingTest[] = [
-  ...R_DATA_01,
-  ...R_DATA_02,
-  ...R_DATA_03,
-  ...R_DATA_04,
-  ...R_DATA_05,
-  ...R_DATA_06,
-  ...R_DATA_07,
-  ...R_DATA_08,
-  ...R_DATA_09,
-  ...R_DATA_10,
-  ...R_DATA_11,
-  ...R_DATA_12,
-  ...R_DATA_13,
-  ...R_DATA_14,
-  ...R_DATA_15,
-  ...R_DATA_16,
-  ...R_DATA_17,
-  ...R_DATA_18,
-  ...R_DATA_19,
-  ...R_DATA_20,
-  ...R_DATA_21,
-  ...R_DATA_22,
-  ...R_DATA_23,
-  ...R_DATA_24,
-  ...R_DATA_25,
-  ...R_DATA_26,
-  ...R_DATA_27,
-  ...R_DATA_28,
-  ...R_DATA_29,
-  ...R_DATA_30,
-  ...R_DATA_31,
-  ...R_DATA_32,
-  ...R_DATA_33,
-  ...R_DATA_34,
-  ...R_DATA_35,
-  ...R_DATA_36,
-  ...R_DATA_37,
-  ...R_DATA_38,
-  ...R_DATA_39,
-  ...R_DATA_40,
-  ...R_DATA_41,
-  ...R_DATA_42,
-  ...R_DATA_43,
-  ...R_DATA_44,
-  ...R_DATA_45,
-  ...R_DATA_46,
-  ...R_DATA_47,
-  ...R_DATA_48,
-  ...R_DATA_49,
-  ...R_DATA_50,
-  ...R_DATA_51,
-  ...R_DATA_52,
-  ...R_DATA_53,
-  ...R_DATA_54,
-  ...R_DATA_55,
-  ...R_DATA_56,
-  ...R_DATA_57,
-  ...R_DATA_58,
-  ...R_DATA_59,
-  ...R_DATA_60,
-  ...R_DATA_61,
-  ...R_DATA_62,
-  ...R_DATA_63,
-  ...R_DATA_64,
-  ...R_DATA_65,
-  ...R_DATA_66,
-  ...R_DATA_67,
-  ...R_DATA_68,
-  ...R_DATA_69,
-  ...R_DATA_70,
-  ...R_DATA_71,
-  ...R_DATA_72,
-  ...R_DATA_73,
-  ...R_DATA_74,
-  ...R_DATA_75,
-  ...R_DATA_76,
-  ...R_DATA_77,
-  ...R_DATA_78,
-  ...R_DATA_79,
-  ...R_DATA_80,
-  ...R_DATA_81,
-  ...R_DATA_82,
-  ...R_DATA_83,
-  ...R_DATA_84,
-  ...R_DATA_85,
-  ...R_DATA_86,
-  ...R_DATA_87,
-  ...R_DATA_88,
-  ...R_DATA_89,
-  ...R_DATA_90,
-  ...R_DATA_91,
-  ...R_DATA_92,
-  ...R_DATA_93,
-  ...R_DATA_94,
-  ...R_DATA_95,
-  ...R_DATA_96,
-  ...R_DATA_97,
-  ...R_DATA_98,
-  ...R_DATA_99
-].sort((a, b) => a.num - b.num);
+/** READING_CHUNK_OF[num - 1] = chunk file holding test `num`. */
+export const READING_CHUNK_OF: number[] = [1, 1, 1, 2, 2, 2, 3, 3, 3, 4, 4, 4, 5, 5, 5, 6, 6, 6, 7, 7, 7, 8, 8, 8, 9, 9, 9, 10, 10, 10, 11, 11, 11, 11, 12, 12, 12, 13, 13, 13, 14, 14, 14, 15, 15, 15, 16, 16, 16, 17, 17, 17, 18, 18, 18, 18, 19, 19, 19, 20, 20, 20, 20, 21, 21, 21, 21, 22, 22, 22, 22, 23, 23, 23, 24, 24, 24, 25, 25, 25, 26, 26, 26, 27, 27, 27, 27, 28, 28, 28, 28, 29, 29, 29, 30, 30, 30, 31, 31, 31, 32, 32, 32, 32, 33, 33, 33, 34, 34, 34, 35, 35, 35, 36, 36, 36, 37, 37, 37, 38, 38, 38, 38, 39, 39, 39, 39, 40, 40, 40, 41, 41, 41, 42, 42, 42, 43, 43, 43, 44, 44, 44, 44, 45, 45, 45, 45, 46, 46, 46, 46, 47, 47, 47, 48, 48, 48, 49, 49, 49, 50, 50, 50, 50, 51, 51, 51, 51, 52, 52, 52, 53, 53, 53, 53, 54, 54, 54, 55, 55, 55, 55, 56, 56, 56, 56, 57, 57, 57, 57, 58, 58, 58, 58, 59, 59, 59, 59, 60, 60, 60, 61, 61, 61, 61, 62, 62, 62, 62, 63, 63, 63, 64, 64, 64, 65, 65, 65, 66, 66, 66, 66, 67, 67, 67, 68, 68, 68, 69, 69, 69, 69, 70, 70, 70, 71, 71, 71, 72, 72, 72, 73, 73, 73, 73, 74, 74, 74, 74, 75, 75, 75, 75, 76, 76, 76, 76, 77, 77, 77, 78, 78, 78, 79, 79, 79, 80, 80, 80, 81, 81, 81, 82, 82, 82, 83, 83, 83, 83, 84, 84, 84, 84, 85, 85, 85, 86, 86, 86, 86, 87, 87, 87, 88, 88, 88, 88, 89, 89, 89, 90, 90, 90, 91, 91, 91, 92, 92, 92, 93, 93, 93, 93, 94, 94, 94, 95, 95, 95, 96, 96, 96, 97, 97, 97, 97, 98, 98, 98, 99, 99, 99, 99, 100, 100, 100, 101, 101, 101, 101, 102, 102, 102, 103, 103, 103, 104, 104, 104, 105, 105, 105, 106, 106, 106, 107, 107, 107, 107, 108, 108, 108, 109, 109, 109, 109, 110, 110, 110, 111, 111, 111, 112, 112, 112, 113, 113, 113, 114, 114, 114, 115, 115, 115, 116, 116, 116, 117, 117, 117, 118, 118, 118, 118, 119, 119, 119, 119, 120, 120, 120, 121, 121, 121, 122, 122, 122, 123, 123, 123, 124, 124, 124, 124, 125, 125, 125, 126, 126, 126, 127, 127, 127, 128, 128, 128, 128, 129, 129, 129, 129, 130, 130, 130, 131, 131, 131, 132, 132, 132, 132, 133, 133, 133, 134, 134, 134, 135, 135, 135, 136, 136, 136, 136, 137, 137, 137, 137, 138, 138, 138, 139, 139, 139, 140, 140, 140, 140, 141, 141, 141, 142, 142, 142, 143, 143, 143, 144, 144, 144, 145, 145, 145, 146, 146, 146, 146, 147, 147, 147, 148, 148, 148, 149, 149, 149, 150, 150, 150, 151, 151, 151, 152, 152, 152, 153, 153, 153, 153, 154, 154, 154, 155, 155, 155, 156, 156, 156, 157, 157, 157, 158, 158, 158, 159, 159, 159, 160, 160, 160, 161, 161, 161, 162, 162, 162, 162, 163, 163, 163, 163, 164, 164, 164, 165, 165, 165, 165, 166, 166, 166, 166, 167, 167, 167, 167, 168, 168, 168, 168, 169, 169, 169, 170, 170, 170, 171, 171, 171, 172, 172, 172, 173, 173, 173, 174, 174, 174, 175, 175, 175, 176, 176, 176, 177, 177, 177, 178, 178, 178, 179, 179, 179, 180, 180, 180, 181, 181, 181, 182, 182, 182, 182, 183, 183, 183, 184, 184, 184, 185, 185, 185, 186, 186, 186, 186, 187, 187, 187, 188, 188, 188, 189, 189, 189, 189, 190, 190, 190, 191, 191, 191, 192, 192, 192, 192, 193, 193, 193, 194, 194, 194, 195, 195, 195, 196, 196, 196, 197, 197, 197, 198, 198, 198, 199, 199, 199, 200, 200, 200, 201, 201, 201, 202, 202, 202, 203, 203, 203, 204, 204, 204, 205, 205, 205, 206, 206, 206, 207, 207, 207, 208, 208, 208, 208, 209, 209, 209, 209, 210, 210, 210, 211, 211, 211, 212, 212, 212, 213, 213, 213, 214, 214, 214, 215, 215, 215, 216, 216, 216, 216, 217, 217, 217, 218, 218, 218, 219, 219, 219, 220, 220, 220, 221, 221, 221, 221, 222, 222, 222, 222, 223, 223, 223, 223, 224, 224, 224, 224, 225, 225, 225, 225, 226, 226, 226, 226, 227, 227, 227, 227, 228, 228, 228, 229, 229, 229, 230, 230, 230, 231, 231, 231, 232, 232, 232, 233, 233, 233, 234, 234, 234, 235, 235, 235, 235, 236, 236, 236, 237, 237, 237, 237, 238, 238, 238, 239, 239, 239, 240, 240, 240, 241, 241, 241, 242, 242, 242, 243, 243, 243, 243, 244, 244, 244, 245, 245, 245, 246, 246, 246, 247, 247, 247, 248, 248, 248, 249, 249, 249, 250, 250, 250, 251, 251, 251, 252, 252, 252, 253, 253, 253, 253, 254, 254, 254, 255, 255, 255, 255, 256, 256, 256, 256, 257, 257, 257, 258, 258, 258, 259, 259, 259, 259, 260, 260, 260, 261, 261, 261, 262, 262, 262, 263, 263, 263, 263, 264, 264, 264, 264, 265, 265, 265, 266, 266, 266, 267, 267, 267, 268, 268, 268, 269, 269, 269, 270, 270, 270, 271, 271, 271, 272, 272, 272, 273, 273, 273, 274, 274, 274, 275, 275, 275, 276, 276, 276, 277, 277, 277, 278, 278, 278, 279, 279, 279, 280, 280, 280, 281, 281, 281, 282, 282, 282, 283, 283, 283, 284, 284, 284, 284, 285, 285, 285, 285, 286, 286, 286, 287, 287, 287, 287, 288, 288, 288, 289, 289, 289, 289, 290, 290, 290, 290, 291, 291, 291, 291, 292, 292, 292, 292, 293, 293, 293, 293, 294, 294, 294, 295, 295, 295, 296, 296, 296, 296, 297, 297, 297, 297, 298, 298, 298, 299, 299, 299, 300, 300, 300, 301, 301, 301, 302, 302, 302, 302, 303, 303, 303, 303];
+
+/**
+ * Load one test by id (e.g. "rd-0001"). Returns null when the id is unknown.
+ * Uses a dynamic import so only the requested test's chunk (~100 KB) is
+ * fetched — the full 1000-test bank is never bundled into a page.
+ */
+export async function loadReadingTest(id: string): Promise<ReadingTest | null> {
+  const m = /^rd-(\d+)$/.exec(id);
+  if (!m) return null;
+  const num = parseInt(m[1], 10);
+  if (num < 1 || num > READING_TEST_COUNT) return null;
+  const chunk = READING_CHUNK_OF[num - 1];
+  const pad = String(chunk).padStart(3, "0");
+  const mod = (await import(`./reading-tests/data-${pad}`)) as Record<
+    string,
+    ReadingTest[]
+  >;
+  const tests = mod[`DATA_${pad}`] ?? [];
+  return tests.find((t) => t.num === num) ?? null;
+}
