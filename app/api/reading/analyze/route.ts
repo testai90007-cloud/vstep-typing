@@ -42,39 +42,112 @@ async function fetchWithTimeout(url: string, init: RequestInit, ms: number): Pro
   }
 }
 
+function sleep(ms: number): Promise<void> {
+  return new Promise((r) => setTimeout(r, ms));
+}
+
+/** Thrown when every Gemini model answered 429 (free-tier per-minute quota). */
+class RateLimitedError extends Error {
+  retryAfterMs: number;
+  constructor(retryAfterMs: number) {
+    super('RATE_LIMITED');
+    this.retryAfterMs = retryAfterMs;
+  }
+}
+
+/**
+ * How long Google says to wait before retrying, from the Retry-After header
+ * or the error body's details[].retryDelay (e.g. "21s"). Defaults to 20s.
+ */
+function parseRetryAfterMs(res: Response, bodyText: string): number {
+  const header = res.headers.get('Retry-After');
+  if (header) {
+    const s = Number(header);
+    if (Number.isFinite(s) && s > 0) return Math.min(s * 1000, 60_000);
+  }
+  try {
+    const data = JSON.parse(bodyText) as {
+      error?: { details?: { retryDelay?: string }[] };
+    };
+    const details = data?.error?.details;
+    if (Array.isArray(details)) {
+      for (const d of details) {
+        const m = typeof d?.retryDelay === 'string' && d.retryDelay.match(/^([\d.]+)s$/);
+        if (m) return Math.min(Number(m[1]) * 1000, 60_000);
+      }
+    }
+  } catch {
+    /* body wasn't JSON — fall through to the default */
+  }
+  return 20_000;
+}
+
 async function callGemini(prompt: string, apiKey: string, deadline: number): Promise<string> {
   let lastError = '';
+  let lastRetryAfterMs = 0;
+  let allRateLimited = true;
   for (const model of GEMINI_MODELS) {
-    const budget = Math.min(MAX_ATTEMPT_MS, remainingMs(deadline));
-    if (budget <= 0) throw new Error('TIMEOUT');
-    let res: Response;
-    try {
-      res = await fetchWithTimeout(
-        `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`,
-        {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json', 'x-goog-api-key': apiKey },
-          body: JSON.stringify({
-            contents: [{ parts: [{ text: prompt }] }],
-            generationConfig: { temperature: 0.2, maxOutputTokens: 1200 },
-          }),
-        },
-        budget,
-      );
-    } catch (e) {
-      lastError = e instanceof Error ? e.message : String(e);
-      continue;
-    }
-    if (!res.ok) {
+    // Up to 2 attempts per model: the first call, plus one retry after a
+    // capped wait when Google answers 429. A 429 must NOT fall through to
+    // the next model immediately — that just burns the next model's quota
+    // too, and a burst of questions then fails every single one.
+    for (let attempt = 0; attempt < 2; attempt++) {
+      const budget = Math.min(MAX_ATTEMPT_MS, remainingMs(deadline));
+      if (budget <= 0) {
+        if (allRateLimited && lastRetryAfterMs > 0) {
+          throw new RateLimitedError(lastRetryAfterMs);
+        }
+        throw new Error('TIMEOUT');
+      }
+      let res: Response;
+      try {
+        res = await fetchWithTimeout(
+          `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`,
+          {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'x-goog-api-key': apiKey },
+            body: JSON.stringify({
+              contents: [{ parts: [{ text: prompt }] }],
+              generationConfig: { temperature: 0.2, maxOutputTokens: 1200 },
+            }),
+          },
+          budget,
+        );
+      } catch (e) {
+        lastError = e instanceof Error ? e.message : String(e);
+        allRateLimited = false;
+        break;
+      }
+      if (res.ok) {
+        const data = (await res.json()) as {
+          candidates?: { content?: { parts?: { text?: string }[] } }[];
+        };
+        const text = data.candidates?.[0]?.content?.parts?.map((p) => p.text || '').join('') || '';
+        if (text.trim()) return text;
+        lastError = `Gemini ${model} -> empty response`;
+        allRateLimited = false;
+        break;
+      }
+      const bodyText = await res.text().catch(() => '');
+      if (res.status === 429) {
+        const waitMs = parseRetryAfterMs(res, bodyText);
+        lastRetryAfterMs = Math.max(lastRetryAfterMs, waitMs);
+        lastError = `Gemini ${model} -> HTTP 429`;
+        if (attempt === 0 && remainingMs(deadline) >= 2000) {
+          // Wait (capped at 8s so one question can't eat the whole budget),
+          // then retry the same model once before falling through.
+          await sleep(Math.min(waitMs, 8000, remainingMs(deadline)));
+          continue;
+        }
+        break;
+      }
       lastError = `Gemini ${model} -> HTTP ${res.status}`;
-      continue;
+      allRateLimited = false;
+      break;
     }
-    const data = (await res.json()) as {
-      candidates?: { content?: { parts?: { text?: string }[] } }[];
-    };
-    const text = data.candidates?.[0]?.content?.parts?.map((p) => p.text || '').join('') || '';
-    if (text.trim()) return text;
-    lastError = `Gemini ${model} -> empty response`;
+  }
+  if (allRateLimited && lastRetryAfterMs > 0) {
+    throw new RateLimitedError(lastRetryAfterMs);
   }
   throw new Error(lastError || 'Gemini failed');
 }
@@ -191,6 +264,18 @@ export async function POST(req: NextRequest) {
     }
     return NextResponse.json({ analysis });
   } catch (e) {
+    if (e instanceof RateLimitedError) {
+      // Free-tier per-minute quota, NOT a bad key — say so explicitly, and
+      // tell the client how long to wait so it can pause instead of hammering.
+      const waitSec = Math.max(1, Math.ceil(e.retryAfterMs / 1000));
+      return NextResponse.json(
+        {
+          error: `Đã chạm giới hạn tốc độ của Gemini (gói miễn phí). Đợi khoảng ${waitSec} giây rồi bấm thử lại — không cần đổi key.`,
+          retryAfterMs: e.retryAfterMs,
+        },
+        { status: 429, headers: { 'Retry-After': String(waitSec) } },
+      );
+    }
     const msg = e instanceof Error ? e.message : String(e);
     if (msg === 'TIMEOUT') {
       return NextResponse.json(

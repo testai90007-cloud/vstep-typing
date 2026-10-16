@@ -337,7 +337,7 @@ export default function ReadingPlayerPage() {
   const analyzeQuestion = async (
     pi: number,
     qi: number,
-  ): Promise<{ ok: boolean; error?: string }> => {
+  ): Promise<{ ok: boolean; error?: string; retryAfterMs?: number }> => {
     if (!test) return { ok: false, error: 'Không tìm thấy đề.' };
     const key = analysisKey(pi, qi);
     if (analysis[key]) return { ok: true };
@@ -362,13 +362,19 @@ export default function ReadingPlayerPage() {
         }),
       });
       const text = await res.text();
-      let data: { analysis?: ReadingAnalysis; error?: string } = {};
+      let data: { analysis?: ReadingAnalysis; error?: string; retryAfterMs?: number } = {};
       try {
         data = text ? JSON.parse(text) : {};
       } catch {
         throw new Error('Máy chủ phân tích đang bận. Thử lại sau.');
       }
-      if (!res.ok) throw new Error(data.error || 'Phân tích thất bại.');
+      if (!res.ok) {
+        // Surface the server's message (a 429 now says "wait", not "check key")
+        // and pass the wait time through so the bulk run can pause + retry.
+        const msg = data.error || 'Phân tích thất bại.';
+        setAnalyzeError((prev) => ({ ...prev, [key]: msg }));
+        return { ok: false, error: msg, retryAfterMs: data.retryAfterMs };
+      }
       if (!data.analysis) throw new Error('AI không trả về kết quả phân tích.');
       setAnalysis((prev) => ({ ...prev, [key]: data.analysis as ReadingAnalysis }));
       return { ok: true };
@@ -381,7 +387,11 @@ export default function ReadingPlayerPage() {
     }
   };
 
-  /** Analyze all questions one by one, with progress + stop. Skips analyzed ones. */
+  /** Analyze all questions one by one, with progress + stop. Skips analyzed ones.
+   * A 429 (Gemini free-tier per-minute quota) pauses the run: it waits out
+   * the server's retry-after (up to 3 pauses per run, interruptible with
+   * Dừng) and retries the same question, instead of dying on question 2
+   * and making the user hammer "Tiếp tục" into the same rate limit. */
   const analyzeAll = async () => {
     if (!test) return;
     bulkStopRef.current = false;
@@ -393,21 +403,51 @@ export default function ReadingPlayerPage() {
     });
     const already = total - keys.length;
     setBulk({ running: true, done: already, total, note: null });
-    for (const [pi, qi] of keys) {
+    let waitsUsed = 0;
+    for (let idx = 0; idx < keys.length; idx++) {
       if (bulkStopRef.current) {
         setBulk((prev) => ({ ...prev, running: false, note: 'Đã dừng.' }));
         return;
       }
+      const [pi, qi] = keys[idx];
       const result = await analyzeQuestion(pi, qi);
-      setBulk((prev) => ({ ...prev, done: prev.done + 1 }));
-      if (!result.ok) {
-        // Stop the bulk run so a rate limit / bad key doesn't burn all 40 calls.
+      if (result.ok) {
+        setBulk((prev) => ({ ...prev, done: prev.done + 1 }));
+      } else if (result.retryAfterMs && waitsUsed < 3) {
+        waitsUsed += 1;
+        const waitSec = Math.min(Math.max(Math.ceil(result.retryAfterMs / 1000), 5), 60);
+        setBulk((prev) => ({
+          ...prev,
+          note: `Chạm giới hạn tốc độ Gemini — tự động tiếp tục sau ~${waitSec} giây (lần ${waitsUsed}/3). Bấm Dừng để dừng hẳn.`,
+        }));
+        // Interruptible wait: sleep in 500ms slices so Dừng reacts at once.
+        let stopped = false;
+        for (let waited = 0; waited < waitSec * 1000; waited += 500) {
+          if (bulkStopRef.current) {
+            stopped = true;
+            break;
+          }
+          await new Promise((r) => setTimeout(r, 500));
+        }
+        if (stopped) {
+          setBulk((prev) => ({ ...prev, running: false, note: 'Đã dừng.' }));
+          return;
+        }
+        idx -= 1; // retry the same question after the pause
+        continue;
+      } else {
+        // Stop the bulk run so a bad key / real failure doesn't burn all 40 calls.
         setBulk((prev) => ({
           ...prev,
           running: false,
           note: `Dừng ở câu ${qNum(pi, qi)}.${result.error ? ` ${result.error}` : ''} Bấm “Tiếp tục” để phân tích tiếp.`,
         }));
         return;
+      }
+      // Gentle pacing between questions so a burst doesn't trip the
+      // per-minute quota on the very first questions.
+      if (idx < keys.length - 1) {
+        await new Promise((r) => setTimeout(r, 1000));
       }
     }
     setBulk((prev) => ({ ...prev, running: false, note: null }));
