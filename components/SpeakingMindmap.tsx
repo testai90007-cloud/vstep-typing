@@ -14,9 +14,12 @@ export default function SpeakingMindmap({
   points: string[];
   followUps: string[];
 }) {
-  // 3 content points + "[your own ideas]" on the right, like the reference image
-  const pts = points.slice(0, 3);
-  const [top, left, bottom] = [pts[0], pts[1], pts[2]];
+  // Diagram shows the first 3 content points + "[your own ideas]" on the right,
+  // like the reference image. Any extra points render as a list below — never
+  // silently dropped (the AI prompt already sees ALL points, so the UI must too).
+  const diagramPts = points.slice(0, 3);
+  const extraPts = points.slice(3);
+  const [top, left, bottom] = [diagramPts[0], diagramPts[1], diagramPts[2]];
   const right = '[your own ideas]';
 
   return (
@@ -35,6 +38,16 @@ export default function SpeakingMindmap({
         <div className="mm-node mm-r">{right}</div>
         <div className="mm-node mm-b">{bottom}</div>
       </div>
+      {extraPts.length > 0 && (
+        <>
+          <p className="mm-fu-head">Điểm bổ sung:</p>
+          <ul className="mm-fu">
+            {extraPts.map((p, i) => (
+              <li key={i}>{p}</li>
+            ))}
+          </ul>
+        </>
+      )}
       <p className="mm-fu-head">Follow-up Questions:</p>
       <ol className="mm-fu">
         {followUps.map((q, i) => (

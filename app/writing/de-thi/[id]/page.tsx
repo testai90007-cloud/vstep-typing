@@ -19,10 +19,13 @@ import {
   ClockIcon,
   ExclamationTriangleIcon,
   FlagIcon,
+  MoonIcon,
   SparklesIcon,
+  SunIcon,
 } from '@heroicons/react/24/outline';
 import { WRITING_TESTS, type WritingTest } from '@/lib/writing-tests';
 import { getAiSettings } from '@/lib/aiKey';
+import { useIsDark } from '@/components/useIsDark';
 import {
   buildTask1ScorePrompt,
   buildTask2ScorePrompt,
@@ -57,9 +60,17 @@ function fmtDur(sec: number): string {
 type Stage = 'pick' | 'doing' | 'result';
 type Mode = 'practice' | 'mock';
 
+// Instruction verbs that mark a Part 1 prompt line as a bullet question.
+// Verified by counting first words of non-question lines across all 300
+// Part 1 prompts. 'Please' is a politeness prefix, not a verb — it catches
+// "Please describe…" style instruction lines.
 const IMPERATIVES = [
   'Tell', 'Say', 'Suggest', 'Ask', 'Recommend', 'Explain', 'Give',
   'Share', 'Describe', 'Include', 'Write',
+  'Mention', 'Provide', 'Introduce', 'Advise', 'Apologize', 'Inform',
+  'Answer', 'Express', 'State', 'List', 'Discuss', 'Request',
+  'Respond', 'Offer', 'Invite', 'Propose', 'Choose', 'Make',
+  'Review', 'Accept', 'Identify', 'Reply', 'Let', 'Please',
 ];
 
 /**
@@ -88,8 +99,22 @@ function PromptCard({ part, taskNo }: { part: WritingTest['part1']; taskNo: 1 | 
     body = others.filter((l) => !bullets.includes(l));
   } else {
     const rest = lines.slice(1);
-    taskLine = rest.find((l) => /^discuss/i.test(l.trimStart()));
-    body = rest.filter((l) => l !== taskLine);
+    // The task instruction is the LAST line of a Part 2 prompt. Search from
+    // the end so a background paragraph that happens to start with a
+    // question word never shadows it. Verified: matches the instruction
+    // in all 300/300 Part 2 prompts (Discuss / Do you agree / Do you think /
+    // In your opinion / Analyze / Give your opinion / Suggest / Write /
+    // Explain / To what extent / What / How / Why / Should …).
+    const TASK_LINE_RE = /^(discuss|do you agree|do you think|in your opinion|analyze|give your opinion|suggest|write|explain|to what extent|what|how|why|should)/i;
+    let taskLineIdx = -1;
+    for (let i = rest.length - 1; i >= 0; i--) {
+      if (TASK_LINE_RE.test(rest[i].trimStart())) {
+        taskLineIdx = i;
+        break;
+      }
+    }
+    taskLine = taskLineIdx >= 0 ? rest[taskLineIdx] : undefined;
+    body = taskLineIdx >= 0 ? rest.filter((_, i) => i !== taskLineIdx) : rest;
   }
 
   return (
@@ -231,7 +256,7 @@ function ScoreDetail({ part, data, testTitle, onCopyPrompt, copied }: { part: 1 
               <span className="chip danger">Lạc đề — 0 điểm</span>
             )}
             <button className="btn sm copy-btn" onClick={onCopyPrompt} title="Sao chép prompt chấm để hỏi thêm AI khác">
-              {copied ? 'Đã sao chép ✓' : 'Sao chép prompt'}
+              {copied ? 'Đã sao chép ✓' : 'Sao chép prompt chấm'}
             </button>
           </div>
         </div>
@@ -331,13 +356,18 @@ function ScoreDetail({ part, data, testTitle, onCopyPrompt, copied }: { part: 1 
  * AI scoring for the two writing tasks. Both parts are scored in parallel,
  * revealing each part's score card as soon as it arrives.
  */
-function AiScoring({ test, text1, text2, onRedo, getSavedId }: { test: WritingTest; text1: string; text2: string; onRedo: () => void; getSavedId: () => number | null }) {
+function AiScoring({ test, text1, text2, onRedo, getSavedId, isAnonymous }: { test: WritingTest; text1: string; text2: string; onRedo: () => void; getSavedId: () => number | null; isAnonymous: boolean }) {
   const [parts, setParts] = useState<[PartScore, PartScore]>([freshPartScore(), freshPartScore()]);
   const [detailTab, setDetailTab] = useState<1 | 2>(1);
   const [essaySubTab, setEssaySubTab] = useState<'essay' | 'prompt'>('essay');
   const [copied, setCopied] = useState(false);
-  const startedRef = useRef(false);
+  const [essayCopied, setEssayCopied] = useState(false);
+  const [started, setStarted] = useState(false);
+  const [keyStatus, setKeyStatus] = useState<'unknown' | 'nokey' | 'haskey'>('unknown');
   const copiedTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const essayCopiedTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  /** Aborts the in-flight scoring fetches when the user cancels. */
+  const abortRef = useRef<AbortController | null>(null);
   /** Persist state of the AI score (attached to the submit row via its id). */
   const [aiSaveState, setAiSaveState] = useState<'idle' | 'saving' | 'saved' | 'skipped' | 'error'>('idle');
   const savedScoreKeyRef = useRef<string | null>(null);
@@ -363,6 +393,7 @@ function AiScoring({ test, text1, text2, onRedo, getSavedId }: { test: WritingTe
       const res = await fetch('/api/writing/score', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
+        signal: abortRef.current?.signal,
         body: JSON.stringify({
           provider: ai.provider,
           apiKey: ai.apiKey,
@@ -383,6 +414,11 @@ function AiScoring({ test, text1, text2, onRedo, getSavedId }: { test: WritingTe
       if (!res.ok) throw new Error(data.error || 'Chấm bài thất bại.');
       setPart(idx, { status: 'done', data: data.score ?? null, raw: data.raw || '' });
     } catch (e) {
+      // Cancelled by the user — back to idle, not an error.
+      if (e instanceof Error && e.name === 'AbortError') {
+        setPart(idx, { status: 'idle', error: '' });
+        return;
+      }
       setPart(idx, { status: 'error', error: e instanceof Error ? e.message : 'Chấm bài thất bại. Hãy thử lại.' });
     }
   }
@@ -408,7 +444,16 @@ function AiScoring({ test, text1, text2, onRedo, getSavedId }: { test: WritingTe
     copiedTimer.current = setTimeout(() => setCopied(false), 2000);
   }
 
+  async function handleCopyEssay() {
+    const ok = await copyText(detailTab === 1 ? text1 : text2);
+    setEssayCopied(ok);
+    if (essayCopiedTimer.current) clearTimeout(essayCopiedTimer.current);
+    essayCopiedTimer.current = setTimeout(() => setEssayCopied(false), 2000);
+  }
+
   const startAll = () => {
+    abortRef.current = new AbortController();
+    setStarted(true);
     setParts([freshPartScore(), freshPartScore()]);
     setAiSaveState('idle');
     savedScoreKeyRef.current = null;
@@ -416,17 +461,28 @@ function AiScoring({ test, text1, text2, onRedo, getSavedId }: { test: WritingTe
     void Promise.all([scoreOne(1, text1), scoreOne(2, text2)]);
   };
 
+  /** Stop a running scoring pass and return to the pre-start state. */
+  const cancelAll = () => {
+    abortRef.current?.abort();
+    abortRef.current = null;
+    setStarted(false);
+    setParts([freshPartScore(), freshPartScore()]);
+    setAiSaveState('idle');
+    savedScoreKeyRef.current = null;
+  };
+
+  // On mount, only check whether a key exists — scoring starts when the
+  // user presses "Chấm điểm AI", so they can read the result first.
   useEffect(() => {
-    if (startedRef.current) return;
-    startedRef.current = true;
     if (!getAiSettings().apiKey) {
+      setKeyStatus('nokey');
       setParts([
         { ...freshPartScore(), status: 'nokey' },
         { ...freshPartScore(), status: 'nokey' },
       ]);
       return;
     }
-    startAll();
+    setKeyStatus('haskey');
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -445,6 +501,12 @@ function AiScoring({ test, text1, text2, onRedo, getSavedId }: { test: WritingTe
    */
   const saveAiScore = useCallback(async (p1: number, p2: number, totalScore: number) => {
     lastScoresRef.current = { p1, p2, total: totalScore };
+    // When we are certain the user is anonymous, the submit-time save never
+    // produced a row id — skip the 15×1s poll and report 'skipped' at once.
+    if (isAnonymous) {
+      setAiSaveState('skipped');
+      return;
+    }
     let id: number | null = null;
     for (let i = 0; i < 15; i++) {
       id = getSavedId();
@@ -452,8 +514,9 @@ function AiScoring({ test, text1, text2, onRedo, getSavedId }: { test: WritingTe
       await new Promise((r) => setTimeout(r, 1000));
     }
     if (!id) {
-      // Not logged in, or the submit-time save failed (parent already toasted).
-      setAiSaveState('skipped');
+      // The submit-time save failed (parent already toasted) — this is a
+      // save failure with retry, NOT "not logged in".
+      setAiSaveState('error');
       return;
     }
     setAiSaveState('saving');
@@ -476,7 +539,7 @@ function AiScoring({ test, text1, text2, onRedo, getSavedId }: { test: WritingTe
     } catch {
       setAiSaveState('error');
     }
-  }, [getSavedId]);
+  }, [getSavedId, isAnonymous]);
 
   // Save once per distinct score set (re-scoring with new scores updates).
   useEffect(() => {
@@ -505,12 +568,35 @@ function AiScoring({ test, text1, text2, onRedo, getSavedId }: { test: WritingTe
         Chấm điểm AI
       </h2>
 
-      <div className="score-cards">
-        <ScoreCard part={1} state={parts[0]} onRetry={() => retryOne(1)} />
-        <ScoreCard part={2} state={parts[1]} onRetry={() => retryOne(2)} />
-      </div>
+      {!started && keyStatus === 'haskey' && (
+        <div className="card-soft" style={{ padding: '14px 16px' }}>
+          <p style={{ margin: '0 0 10px', fontSize: '0.9rem', color: 'var(--muted)', lineHeight: 1.65 }}>
+            AI sẽ chấm cả 2 Task theo thang điểm 0–10. Bấm nút bên dưới khi bạn sẵn sàng.
+          </p>
+          <button className="btn primary" onClick={startAll}>
+            Chấm điểm AI
+          </button>
+        </div>
+      )}
+
+      {started && (
+        <>
+          <div className="score-cards">
+            <ScoreCard part={1} state={parts[0]} onRetry={() => retryOne(1)} />
+            <ScoreCard part={2} state={parts[1]} onRetry={() => retryOne(2)} />
+          </div>
+          {!finished && (
+            <div className="btn-row" style={{ marginTop: 12 }}>
+              <button className="btn" onClick={cancelAll}>
+                Hủy chấm
+              </button>
+            </div>
+          )}
+        </>
+      )}
 
       {bothDone && (
+        <>
         <div className="card-soft total-card">
           <div className="total-label">ĐIỂM WRITING TỔNG</div>
           <div className="total-num" style={{ color: scoreColor(total) }}>
@@ -544,6 +630,7 @@ function AiScoring({ test, text1, text2, onRedo, getSavedId }: { test: WritingTe
             )}
           </p>
         </div>
+        </>
       )}
 
       {finished && hasKey && (
@@ -588,7 +675,7 @@ function AiScoring({ test, text1, text2, onRedo, getSavedId }: { test: WritingTe
                 <SparklesIcon width={18} height={18} />
               </span>
               <p>
-                Nhận xét còn chung chung? Ấn <strong>Sao chép prompt</strong> rồi hỏi thêm ChatGPT, Gemini, Claude…
+                Nhận xét còn chung chung? Ấn <strong>Sao chép prompt chấm</strong> rồi hỏi thêm ChatGPT, Gemini, Claude…
               </p>
             </div>
             <div className="card-soft tip-card">
@@ -624,7 +711,7 @@ function AiScoring({ test, text1, text2, onRedo, getSavedId }: { test: WritingTe
                   }}
                 >
                   {d && (
-                    <span className="tab-score" style={{ color: active ? '#fff' : scoreColor(d.overall_score) }}>
+                    <span className="tab-score" style={{ color: active ? 'var(--bg)' : scoreColor(d.overall_score) }}>
                       {fmtScore(d.overall_score)}
                     </span>
                   )}
@@ -639,7 +726,12 @@ function AiScoring({ test, text1, text2, onRedo, getSavedId }: { test: WritingTe
             <div className="card essay-card">
               <div className="essay-head">
                 <strong>Bài làm của bạn</strong>
-                <WordCounter words={wordCount(activeEssay)} min={activeMin} />
+                <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
+                  <button className="btn sm" onClick={handleCopyEssay} disabled={!activeEssay}>
+                    {essayCopied ? 'Đã sao chép ✓' : 'Sao chép bài làm'}
+                  </button>
+                  <WordCounter words={wordCount(activeEssay)} min={activeMin} />
+                </span>
               </div>
               <div className="mini-tabs">
                 <button className={essaySubTab === 'essay' ? 'active' : ''} onClick={() => setEssaySubTab('essay')}>
@@ -691,7 +783,7 @@ function AiScoring({ test, text1, text2, onRedo, getSavedId }: { test: WritingTe
       )}
 
       <p style={{ color: 'var(--faint)', fontSize: '0.78rem', margin: '12px 0 0', lineHeight: 1.6 }}>
-        Điểm AI chỉ mang tính tham khảo theo prompt chấm bạn đã cung cấp.
+        Điểm AI chỉ mang tính tham khảo.
       </p>
     </div>
   );
@@ -707,6 +799,9 @@ function WordCounter({ words, min }: { words: number; min: number }) {
     </span>
   );
 }
+
+/** Max essay size accepted by the scoring endpoint (~2000 words). */
+const MAX_ESSAY_CHARS = 12000;
 
 /** One task editor: prompt card + "Bài viết của bạn" + big textarea + word count. */
 function TaskEditor({
@@ -724,6 +819,9 @@ function TaskEditor({
 }) {
   const words = wordCount(value);
   const min = taskNo === 1 ? MIN_WORDS_1 : MIN_WORDS_2;
+  const chars = value.length;
+  const nearCap = chars >= MAX_ESSAY_CHARS * 0.8;
+  const atCap = chars >= MAX_ESSAY_CHARS;
   return (
     <>
       <PromptCard part={part} taskNo={taskNo} />
@@ -737,9 +835,21 @@ function TaskEditor({
         value={value}
         onChange={(e) => onChange(e.target.value)}
         spellCheck={false}
+        maxLength={MAX_ESSAY_CHARS}
       />
       <div className="write-meta">
         <WordCounter words={words} min={min} />
+        <span
+         
+          style={{
+            fontSize: '0.82rem',
+            fontWeight: nearCap ? 700 : 400,
+            color: atCap ? 'var(--wrong)' : nearCap ? 'var(--warn)' : 'var(--muted)',
+          }}
+        >
+          {chars.toLocaleString('vi-VN')} / {MAX_ESSAY_CHARS.toLocaleString('vi-VN')} ký tự
+          {atCap && ' — đã đạt giới hạn'}
+        </span>
       </div>
     </>
   );
@@ -765,7 +875,18 @@ export default function WritingTestPage() {
   const params = useParams();
   const id = Array.isArray(params.id) ? params.id[0] : params.id;
   const test = useMemo(() => WRITING_TESTS.find((t) => t.id === id), [id]);
-  const { data: session } = useSession();
+  const { data: session, status: sessionStatus } = useSession();
+  // theme: same site-wide toggle as the typing page (html[data-theme] + localStorage 'vstep_theme')
+  const dark = useIsDark();
+  function toggleDark() {
+    const next = !dark;
+    document.documentElement.setAttribute('data-theme', next ? 'dark' : 'light');
+    try {
+      localStorage.setItem('vstep_theme', next ? 'dark' : 'light');
+    } catch {
+      /* private mode */
+    }
+  }
 
   const [stage, setStage] = useState<Stage>('pick');
   const [mode, setMode] = useState<Mode>('practice');
@@ -777,7 +898,9 @@ export default function WritingTestPage() {
   const [autoSubmitted, setAutoSubmitted] = useState(false);
   const [confirming, setConfirming] = useState(false);
   const [toast, setToast] = useState('');
-  const [result, setResult] = useState<{ durationSec: number; w1: number; w2: number; auto: boolean } | null>(null);
+  const [saveFailed, setSaveFailed] = useState(false);
+  const [elapsedSec, setElapsedSec] = useState(0);
+  const [result, setResult] = useState<{ durationSec: number; w1: number; w2: number; auto: boolean; t1Sec?: number; t2Sec?: number } | null>(null);
 
   const timerRef = useRef<{ start: number; total: number } | null>(null);
   const startStamp = useRef<number | null>(null);
@@ -785,6 +908,40 @@ export default function WritingTestPage() {
   const finishedRef = useRef(false);
   /** Row id returned by /api/writing/save — used to attach AI scores later. */
   const savedIdRef = useRef<number | null>(null);
+  /** Confirm-modal focus management: "Nộp bài" opener + "Viết tiếp" button. */
+  const submitBtnRef = useRef<HTMLButtonElement | null>(null);
+  const continueBtnRef = useRef<HTMLButtonElement | null>(null);
+  const prevConfirmingRef = useRef(false);
+  /** Per-task time tracking (mock mode): accumulated seconds per Task. */
+  const taskTimeRef = useRef<{ 1: number; 2: number }>({ 1: 0, 2: 0 });
+  const taskStartRef = useRef<{ task: 1 | 2; at: number } | null>(null);
+
+  function accumulateTaskTime() {
+    const s = taskStartRef.current;
+    if (!s) return;
+    taskTimeRef.current[s.task] += (Date.now() - s.at) / 1000;
+    taskStartRef.current = null;
+  }
+
+  /**
+   * Part switcher: tracks per-task time in mock mode and moves focus to
+   * the newly active textarea — but only on fine pointers, so switching
+   * tabs on a phone doesn't pop the keyboard unexpectedly.
+   */
+  function switchTab(t: 1 | 2) {
+    if (t === tab) return;
+    if (stage === 'doing' && mode === 'mock') {
+      accumulateTaskTime();
+      taskStartRef.current = { task: t, at: Date.now() };
+    }
+    setTab(t);
+    if (typeof window !== 'undefined' && window.matchMedia('(pointer: fine)').matches) {
+      const prefix = mode === 'mock' ? 'm' : 't';
+      setTimeout(() => {
+        document.getElementById(`${prefix}${t}`)?.focus();
+      }, 0);
+    }
+  }
 
   const totalSec = (test?.timeMin ?? 60) * 60;
   const words1 = wordCount(text1);
@@ -817,19 +974,147 @@ export default function WritingTestPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [stage, mode]);
 
-  // --- beforeunload guard while a mock test is in progress --------------------
+  // --- elapsed time (practice mode): the chip shows time spent -----------
   useEffect(() => {
-    if (stage !== 'doing' || mode !== 'mock') return;
+    if (stage !== 'doing' || mode !== 'practice') return;
+    const idInt = setInterval(() => {
+      if (startStamp.current) {
+        setElapsedSec(Math.round((Date.now() - startStamp.current) / 1000));
+      }
+    }, 500);
+    return () => clearInterval(idInt);
+  }, [stage, mode]);
+
+  // --- confirm modal: Escape closes, focus moves in and back out ----------
+  useEffect(() => {
+    if (confirming) {
+      prevConfirmingRef.current = true;
+      const t = setTimeout(() => continueBtnRef.current?.focus(), 0);
+      const onKey = (e: KeyboardEvent) => {
+        if (e.key === 'Escape') setConfirming(false);
+      };
+      window.addEventListener('keydown', onKey);
+      return () => {
+        clearTimeout(t);
+        window.removeEventListener('keydown', onKey);
+      };
+    }
+    if (prevConfirmingRef.current) {
+      prevConfirmingRef.current = false;
+      // Return focus to "Nộp bài" — only if it's still mounted (the
+      // confirm-submit path unmounts it by moving to the result stage).
+      const btn = submitBtnRef.current;
+      if (btn && document.contains(btn)) btn.focus();
+    }
+  }, [confirming]);
+
+  // --- beforeunload guard while a test is in progress (mock OR practice) -----
+  useEffect(() => {
+    if (stage !== 'doing') return;
+    if (!text1.trim() && !text2.trim()) return;
     const handler = (e: BeforeUnloadEvent) => {
       e.preventDefault();
+      e.returnValue = '';
     };
     window.addEventListener('beforeunload', handler);
     return () => window.removeEventListener('beforeunload', handler);
-  }, [stage, mode]);
+  }, [stage, text1, text2]);
+
+  // --- draft autosave (localStorage): survives refresh / accidental navigation
+  const DRAFT_KEY = `vstep_draft_writing_dethi_${id}`;
+  const [draftInfo, setDraftInfo] = useState<{ savedAt: number } | null>(null);
+
+  // On mount: check for an unfinished draft (metadata only — restore is the
+  // user's choice via the banner, never automatic).
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem(DRAFT_KEY);
+      if (raw) {
+        const d = JSON.parse(raw) as { text1?: string; text2?: string; savedAt?: number };
+        if ((d.text1 || '').trim() !== '' || (d.text2 || '').trim() !== '') {
+          setDraftInfo({ savedAt: d.savedAt || 0 });
+        }
+      }
+    } catch {
+      /* corrupted draft — ignore */
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [id]);
+
+  // Autosave (debounced) while writing. Never overwrites a good draft with
+  // empty content.
+  useEffect(() => {
+    if (stage !== 'doing') return;
+    const timer = setTimeout(() => {
+      try {
+        if (!text1.trim() && !text2.trim()) return;
+        localStorage.setItem(DRAFT_KEY, JSON.stringify({
+          text1, text2, tab, mode, savedAt: Date.now(),
+        }));
+      } catch {
+        /* private mode / quota — the test itself still works */
+      }
+    }, 800);
+    return () => clearTimeout(timer);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [stage, text1, text2, tab, mode]);
+
+  function restoreDraft() {
+    try {
+      const raw = localStorage.getItem(DRAFT_KEY);
+      if (!raw) return;
+      const d = JSON.parse(raw) as { text1?: string; text2?: string; tab?: number; mode?: string };
+      setText1(d.text1 || '');
+      setText2(d.text2 || '');
+      setTab(d.tab === 2 ? 2 : 1);
+      setMode(d.mode === 'mock' ? 'mock' : 'practice');
+      // Per-task clock restarts with the draft (the mock countdown itself
+      // also restarts at 60:00 — disclosed in the toast below).
+      taskTimeRef.current = { 1: 0, 2: 0 };
+      taskStartRef.current = d.mode === 'mock'
+        ? { task: d.tab === 2 ? 2 : 1, at: Date.now() }
+        : null;
+      if (d.mode !== 'mock' && !startStamp.current) startStamp.current = Date.now();
+      finishedRef.current = false;
+      setExpired(false);
+      setAutoSubmitted(false);
+      setConfirming(false);
+      setResult(null);
+      setStage('doing');
+      setDraftInfo(null);
+      showToast(
+        d.mode === 'mock'
+          ? 'Đã khôi phục bản nháp. Đồng hồ thi thử đã đặt lại 60:00.'
+          : 'Đã khôi phục bản nháp.',
+      );
+      window.scrollTo({ top: 0 });
+    } catch {
+      /* corrupted draft — ignore */
+    }
+  }
+
+  function discardDraft() {
+    try {
+      localStorage.removeItem(DRAFT_KEY);
+    } catch {
+      /* ignore */
+    }
+    setDraftInfo(null);
+  }
+
+  function clearDraft() {
+    try {
+      localStorage.removeItem(DRAFT_KEY);
+    } catch {
+      /* ignore */
+    }
+    setDraftInfo(null);
+  }
 
   async function saveResult(durationSec: number) {
     if (!test) return;
     savedIdRef.current = null;
+    setSaveFailed(false);
     try {
       const res = await fetch('/api/writing/save', {
         method: 'POST',
@@ -848,12 +1133,20 @@ export default function WritingTestPage() {
       }
       if (data && data.saved === false && data.reason === 'no-database') {
         showToast('Chưa kết nối database — bài làm vẫn được chấm tại chỗ.');
+        return;
+      }
+      if (!res.ok || (data && data.saved === false)) {
+        // Transient failure for a logged-in user — surface a retry
+        // instead of silently dropping the result.
+        setSaveFailed(true);
+        return;
       }
       if (data && typeof data.id === 'number') {
         savedIdRef.current = data.id;
       }
     } catch {
-      /* offline / db down — the test itself still works */
+      /* offline / db down — surface a retry instead of staying silent */
+      setSaveFailed(true);
     }
   }
 
@@ -864,11 +1157,20 @@ export default function WritingTestPage() {
     if (finishedRef.current || !test) return;
     finishedRef.current = true;
     timerRef.current = null;
+    accumulateTaskTime();
     const dur = startStamp.current ? Math.round((Date.now() - startStamp.current) / 1000) : 0;
-    setResult({ durationSec: dur, w1: wordCount(text1), w2: wordCount(text2), auto });
+    setResult({
+      durationSec: dur,
+      w1: wordCount(text1),
+      w2: wordCount(text2),
+      auto,
+      t1Sec: Math.round(taskTimeRef.current[1]),
+      t2Sec: Math.round(taskTimeRef.current[2]),
+    });
     setAutoSubmitted(auto);
     setConfirming(false);
     setStage('result');
+    clearDraft();
     saveResult(dur);
     showToast(auto ? 'Hết giờ! Bài đã được tự động nộp.' : 'Đã nộp bài!');
   }
@@ -884,11 +1186,16 @@ export default function WritingTestPage() {
     setExpired(false);
     setAutoSubmitted(false);
     setConfirming(false);
+    setSaveFailed(false);
+    setElapsedSec(0);
     setText1('');
     setText2('');
     setTab(1);
     setResult(null);
     setMode(m);
+    // Fresh per-task clock for a new mock attempt.
+    taskTimeRef.current = { 1: 0, 2: 0 };
+    taskStartRef.current = m === 'mock' ? { task: 1, at: Date.now() } : null;
     if (m === 'practice') {
       startStamp.current = Date.now();
     }
@@ -932,10 +1239,33 @@ export default function WritingTestPage() {
   return (
     <main className="page">
       <div className="nav-top">
-        <Link href="/writing" className="back">
+        <Link
+          href="/writing"
+          className="back"
+          onClick={(e) => {
+            // In-app guard: beforeunload doesn't cover client-side nav.
+            // Draft autosave already keeps the work — this only stops the
+            // user being surprised by the visible text vanishing.
+            if (
+              stage === 'doing' &&
+              (text1.trim() || text2.trim()) &&
+              !window.confirm('Bài làm đang dở — bản nháp đã tự lưu. Bạn muốn thoát chứ?')
+            ) {
+              e.preventDefault();
+            }
+          }}
+        >
           <ArrowLeftIcon width={16} height={16} />
-          {stage === 'doing' ? 'Thoát (bài làm sẽ mất)' : 'Chọn đề khác'}
+          {stage === 'doing' ? 'Thoát · bản nháp tự lưu' : 'Chọn đề khác'}
         </Link>
+        <button
+          className="icon-btn"
+          onClick={toggleDark}
+          title={dark ? 'Chế độ sáng' : 'Chế độ tối'}
+          aria-label={dark ? 'Chế độ sáng' : 'Chế độ tối'}
+        >
+          {dark ? <SunIcon width={19} height={19} /> : <MoonIcon width={19} height={19} />}
+        </button>
       </div>
 
       {/* ============================ MODE PICKER ============================ */}
@@ -968,6 +1298,27 @@ export default function WritingTestPage() {
               </p>
             </button>
           </div>
+
+          {draftInfo && (
+            <div
+              className="card-soft"
+              style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap', marginTop: 16 }}
+            >
+              <span style={{ fontSize: '0.88rem', color: 'var(--muted)' }}>
+                Có bản nháp chưa hoàn thành
+                {draftInfo.savedAt > 0 && (
+                  <> (lưu lúc {new Date(draftInfo.savedAt).toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' })})</>
+                )}
+                .
+              </span>
+              <button className="btn sm primary" onClick={restoreDraft}>
+                Khôi phục bản nháp
+              </button>
+              <button className="btn sm" onClick={discardDraft}>
+                Xóa bản nháp
+              </button>
+            </div>
+          )}
         </>
       )}
 
@@ -980,7 +1331,7 @@ export default function WritingTestPage() {
             </h1>
             <span className="chip" style={{ marginLeft: 'auto' }}>
               <ClockIcon width={13} height={13} />
-              Không giới hạn thời gian
+              Không giới hạn · đã làm <span>{fmtClock(elapsedSec)}</span>
             </span>
           </div>
 
@@ -999,17 +1350,18 @@ export default function WritingTestPage() {
                 const dur = startStamp.current ? Math.round((Date.now() - startStamp.current) / 1000) : 0;
                 setResult({ durationSec: dur, w1: words1, w2: words2, auto: false });
                 setStage('result');
+                clearDraft();
                 saveResult(dur);
                 showToast(session?.user ? 'Đã lưu bài!' : 'Xong! Đăng nhập để lưu tiến bộ nhé.');
                 window.scrollTo({ top: 0 });
               }}
             >
               <CheckCircleIcon width={16} height={16} />
-              Lưu bài
+              Hoàn thành &amp; lưu bài
             </button>
           </div>
 
-          <TaskBottomBar tab={tab} setTab={setTab} />
+          <TaskBottomBar tab={tab} setTab={switchTab} />
         </>
       )}
 
@@ -1027,7 +1379,7 @@ export default function WritingTestPage() {
                   <ClockIcon width={18} height={18} />
                   {fmtClock(timeLeft)}
                 </div>
-                <button className="btn primary" onClick={() => setConfirming(true)}>
+                <button ref={submitBtnRef} className="btn primary" onClick={() => setConfirming(true)}>
                   <FlagIcon width={15} height={15} />
                   Nộp bài
                 </button>
@@ -1046,17 +1398,17 @@ export default function WritingTestPage() {
             )}
           </div>
 
-          <TaskBottomBar tab={tab} setTab={setTab} />
+          <TaskBottomBar tab={tab} setTab={switchTab} />
 
           {confirming && (
             <div className="modal-overlay" onClick={() => setConfirming(false)}>
               <div className="modal card" onClick={(e) => e.stopPropagation()} role="dialog" aria-modal="true" aria-label="Xác nhận nộp bài">
                 <p style={{ fontSize: '1.05rem', fontWeight: 700, margin: '0 0 8px' }}>Nộp bài thi thử?</p>
                 <p style={{ color: 'var(--muted)', fontSize: '0.9rem', margin: '0 0 18px', lineHeight: 1.65 }}>
-                  Task 1: {words1} từ · Task 2: {words2} từ · còn {fmtClock(timeLeft)}. Bạn chắc chắn muốn nộp bài?
+                  Task 1: {words1} từ · Task 2: {words2} từ · còn <span>{fmtClock(timeLeft)}</span>. Bạn chắc chắn muốn nộp bài?
                 </p>
                 <div className="btn-row" style={{ justifyContent: 'flex-end' }}>
-                  <button className="btn" onClick={() => setConfirming(false)}>
+                  <button ref={continueBtnRef} className="btn" onClick={() => setConfirming(false)}>
                     Viết tiếp
                   </button>
                   <button className="btn primary" onClick={() => finish(false)}>
@@ -1104,8 +1456,21 @@ export default function WritingTestPage() {
               Chế độ: {mode === 'mock' ? 'Thi thử' : 'Luyện tập'} · Kéo xuống dưới để xem AI chấm điểm
               chi tiết từng Task.
             </p>
+            {mode === 'mock' && result.t1Sec != null && result.t2Sec != null && (
+              <p style={{ color: 'var(--muted)', fontSize: '0.85rem', margin: '8px 0 0', lineHeight: 1.65 }}>
+                Thời gian từng Task — Task 1: <span>{fmtClock(result.t1Sec)}</span> · Task 2: <span>{fmtClock(result.t2Sec)}</span>
+              </p>
+            )}
+            {saveFailed && session?.user && (
+              <p style={{ color: 'var(--muted)', fontSize: '0.85rem', margin: '8px 0 0', display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+                Lưu kết quả thất bại — kiểm tra mạng rồi thử lại.
+                <button className="btn sm" onClick={() => saveResult(result.durationSec)}>
+                  Thử lưu lại
+                </button>
+              </p>
+            )}
           </div>
-          <AiScoring test={test} text1={text1} text2={text2} onRedo={retry} getSavedId={getSavedId} />
+          <AiScoring test={test} text1={text1} text2={text2} onRedo={retry} getSavedId={getSavedId} isAnonymous={sessionStatus === 'unauthenticated'} />
         </>
       )}
 

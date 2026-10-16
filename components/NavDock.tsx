@@ -4,14 +4,17 @@
 // nav bar (the homepage keeps SiteHeader). React Bits Dock with macOS-style
 // magnification; items navigate between the skill pages.
 
-import { useRouter } from 'next/navigation';
+import { usePathname, useRouter } from 'next/navigation';
 import { signIn, signOut, useSession } from 'next-auth/react';
 import {
   PencilSquareIcon,
   MicrophoneIcon,
   SpeakerWaveIcon,
   BookOpenIcon,
+  LanguageIcon,
   ChartBarIcon,
+  ClockIcon,
+  IdentificationIcon,
   Cog6ToothIcon,
   MoonIcon,
   SunIcon,
@@ -26,10 +29,14 @@ const iconProps = { width: 22, height: 22 } as const;
 
 export default function NavDock() {
   const router = useRouter();
+  const pathname = usePathname();
   const { data: session, status } = useSession();
   const isDark = useIsDark();
 
   const go = (href: string) => () => router.push(href);
+  // "You are here" state: a section is active on its own page and subpages
+  // (e.g. /writing/de-thi/12 still highlights Luyện Viết).
+  const isActive = (href: string) => pathname === href || pathname.startsWith(href + '/');
 
   const authItem: DockItem | null =
     status === 'loading'
@@ -56,13 +63,16 @@ export default function NavDock() {
           };
 
   const items: DockItem[] = [
-    { label: 'Luyện Viết', icon: <PencilSquareIcon {...iconProps} />, onClick: go('/writing') },
-    { label: 'Luyện Nói', icon: <MicrophoneIcon {...iconProps} />, onClick: go('/speaking') },
-    { label: 'Luyện Nghe', icon: <SpeakerWaveIcon {...iconProps} />, onClick: go('/listening') },
-    { label: 'Luyện Đọc', icon: <BookOpenIcon {...iconProps} />, onClick: go('/reading') },
+    { label: 'Luyện Viết', icon: <PencilSquareIcon {...iconProps} />, onClick: go('/writing'), active: isActive('/writing') },
+    { label: 'Luyện Nói', icon: <MicrophoneIcon {...iconProps} />, onClick: go('/speaking'), active: isActive('/speaking') },
+    { label: 'Luyện Nghe', icon: <SpeakerWaveIcon {...iconProps} />, onClick: go('/listening'), active: isActive('/listening') },
+    { label: 'Luyện Đọc', icon: <BookOpenIcon {...iconProps} />, onClick: go('/reading'), active: isActive('/reading') },
+    { label: 'Từ vựng', icon: <LanguageIcon {...iconProps} />, onClick: go('/tu-vung'), active: isActive('/tu-vung') },
     { separator: true },
-    { label: 'Tiến độ', icon: <ChartBarIcon {...iconProps} />, onClick: go('/progress') },
-    { label: 'Cài đặt AI', icon: <Cog6ToothIcon {...iconProps} />, onClick: go('/settings') },
+    { label: 'Tiến độ', icon: <ChartBarIcon {...iconProps} />, onClick: go('/progress'), active: isActive('/progress') },
+    { label: 'Lịch sử', icon: <ClockIcon {...iconProps} />, onClick: go('/lich-su'), active: isActive('/lich-su') },
+    { label: 'Hồ sơ năng lực', icon: <IdentificationIcon {...iconProps} />, onClick: go('/ho-so-nang-luc'), active: isActive('/ho-so-nang-luc') },
+    { label: 'Cài đặt AI', icon: <Cog6ToothIcon {...iconProps} />, onClick: go('/settings'), active: isActive('/settings') },
     { separator: true },
     {
       label: isDark ? 'Giao diện sáng' : 'Giao diện tối',

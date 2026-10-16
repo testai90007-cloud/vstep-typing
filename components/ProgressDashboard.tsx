@@ -21,35 +21,32 @@ import {
   StarIcon,
 } from '@heroicons/react/24/outline';
 import { getTemplate } from '@/lib/templates';
-import { WRITING_TESTS } from '@/lib/writing-tests';
-import { READING_TESTS } from '@/lib/reading-tests';
-import { LISTENING_TESTS } from '@/lib/listening';
+// Title lookups use the generated id→title maps (lib/test-titles.ts, ~29 KB),
+// NOT the full question banks (~9.4 MB) — /progress must not bundle them.
+import { LISTENING_TITLES, READING_TITLES, WRITING_TITLES } from '@/lib/test-titles';
+import { MODE_LABEL, SPEAK_LABEL, fmtDur } from '@/lib/format';
 import CountUp from '@/components/CountUp';
-import SpotlightCard from '@/components/SpotlightCard';
 import AnimatedList from '@/components/AnimatedList';
 import FluidTabs from '@/components/FluidTabs';
 import SegProgress from '@/components/SegProgress';
-import { useIsDark } from '@/components/useIsDark';
 
 export function writingTitle(templateId: string | null): string {
   if (!templateId) return '—';
   const tpl = getTemplate(templateId);
   if (tpl) return tpl.title;
-  const test = WRITING_TESTS.find((t) => t.id === templateId);
-  if (test) return `${test.title} · Đề thi`;
+  const title = WRITING_TITLES[templateId];
+  if (title) return `${title} · Đề thi`;
   return templateId;
 }
 
 export function readingTitle(testId: string | null): string {
   if (!testId) return '—';
-  const test = READING_TESTS.find((t) => t.id === testId);
-  return test ? test.title : testId;
+  return READING_TITLES[testId] ?? testId;
 }
 
 export function listeningTitle(testId: string | null): string {
   if (!testId) return '—';
-  const test = LISTENING_TESTS.find((t) => t.id === testId);
-  return test ? test.title : testId;
+  return LISTENING_TITLES[testId] ?? testId;
 }
 
 export interface WritingSession {
@@ -164,10 +161,7 @@ function fmtDate(iso: string): string {
   }
 }
 
-function fmtDur(sec: number): string {
-  const m = Math.floor(sec / 60);
-  return `${m}:${String(sec % 60).padStart(2, '0')}`;
-}
+
 
 /** "45 phút" / "2 giờ 15 phút" */
 function fmtTotal(sec: number): string {
@@ -177,21 +171,7 @@ function fmtTotal(sec: number): string {
   return `${h} giờ ${m} phút`;
 }
 
-const MODE_LABEL: Record<string, string> = {
-  whole: 'Toàn bài',
-  sections: 'Từng phần',
-  exam: 'Thi thử',
-  practice: 'Đề thi · Luyện tập',
-  mock: 'Đề thi · Thi thử',
-};
-
-const SCORE_LABEL: Record<string, string> = {
-  grammar: 'Ngữ pháp',
-  vocabulary: 'Từ vựng',
-  pronunciation: 'Phát âm',
-  fluency: 'Trôi chảy',
-  discourse_management: 'Mạch lạc',
-};
+const SCORE_LABEL = SPEAK_LABEL;
 
 /* ---------------- sparkline: mini SVG trend of recent sessions ---------------- */
 
@@ -245,6 +225,44 @@ export interface DashboardData {
   speaking: SpeakingSession[];
   listening: ListeningSession[];
   reading: ReadingSession[];
+}
+
+/** Total session counts per skill, as reported by the history APIs
+ * (`total` from ?limit=&offset= pagination). null = unknown (API without
+ * pagination support) — the LoadMore footer hides itself then. */
+export type HistoryTotals = {
+  writing: number | null;
+  speaking: number | null;
+  listening: number | null;
+  reading: number | null;
+};
+
+/** "Hiển thị X / N buổi" + "Tải thêm" footer for a history tab. Renders
+ * nothing when the total is unknown or everything is already loaded. */
+function LoadMore({
+  skill,
+  shown,
+  total,
+  onLoadMore,
+  loading,
+}: {
+  skill: HistTab;
+  shown: number;
+  total: number | null | undefined;
+  onLoadMore?: (skill: HistTab) => void;
+  loading?: boolean;
+}) {
+  if (total == null || shown >= total) return null;
+  return (
+    <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginTop: 14 }}>
+      <span style={{ color: 'var(--muted)', fontSize: '0.88rem' }}>
+        Hiển thị {shown} / {total} buổi
+      </span>
+      <button className="btn" onClick={() => onLoadMore?.(skill)} disabled={loading}>
+        {loading ? 'Đang tải…' : 'Tải thêm'}
+      </button>
+    </div>
+  );
 }
 
 
@@ -367,6 +385,9 @@ export function DashboardView({
   userName,
   userInitial,
   userImage,
+  totals,
+  onLoadMore,
+  loadingMore,
 }: {
   data: DashboardData;
   targetLevel: { id: string; threshold: number };
@@ -374,11 +395,28 @@ export function DashboardView({
   userName: string;
   userInitial: string;
   userImage?: string | null;
+  totals?: HistoryTotals;
+  onLoadMore?: (skill: HistTab) => void;
+  loadingMore?: Partial<Record<HistTab, boolean>>;
 }) {
   const { writing, speaking, listening, reading } = data;
-  const isDark = useIsDark();
 
-  const totalSessions = writing.length + speaking.length + listening.length + reading.length;
+  // Headline totals come from the API `total` (all saved sessions), NOT from
+  // the loaded arrays — the first page only holds 100 sessions per skill.
+  // When totals are unknown (older API shape), fall back to loaded counts.
+  const loadedTotal = writing.length + speaking.length + listening.length + reading.length;
+  const totalsKnown =
+    totals != null &&
+    [totals.writing, totals.speaking, totals.listening, totals.reading].every(
+      (t) => t != null
+    );
+  const grandTotal = totalsKnown
+    ? (totals!.writing ?? 0) +
+      (totals!.speaking ?? 0) +
+      (totals!.listening ?? 0) +
+      (totals!.reading ?? 0)
+    : null;
+  const totalSessions = grandTotal ?? loadedTotal;
   // Note: speaking sessions don't record duration, so they contribute 0 here.
   const totalSec =
     writing.reduce((a, s) => a + (s.duration_sec || 0), 0) +
@@ -407,6 +445,14 @@ export function DashboardView({
     writingScored.length > 0
       ? writingScored.reduce((a, s) => a + (s.accuracy as number), 0) / writingScored.length
       : 0;
+  // Writing headline = AI essay score (same metric as /ho-so-nang-luc).
+  // Typing accuracy is a different metric (keystroke fidelity) and is shown
+  // only as a sub-line on the Writing card — never as the Writing headline.
+  const writingAi = writing.filter((s) => s.ai_score != null);
+  const avgAi =
+    writingAi.length > 0
+      ? writingAi.reduce((a, s) => a + Number(s.ai_score), 0) / writingAi.length
+      : null;
   const avgSpeaking =
     speaking.length > 0
       ? speaking.reduce((a, s) => a + (s.overall || 0), 0) / speaking.length
@@ -436,6 +482,8 @@ export function DashboardView({
     count: number;
     headline: string;
     headlineLabel: string;
+    /** Writing only: typing-accuracy sub-line (never the headline). */
+    sub?: string;
     best: string;
     values: number[];
     avg10: number | null;
@@ -446,15 +494,22 @@ export function DashboardView({
       href: '/writing',
       title: 'Luyện Viết',
       Icon: PencilSquareIcon,
-      count: writing.length,
-      headline: writingScored.length > 0 ? `${Math.round(avgAcc)}%` : '—',
-      headlineLabel: 'độ chính xác TB',
-      best:
+      count: totals?.writing ?? writing.length,
+      headline: avgAi != null ? avgAi.toFixed(1) : '—',
+      headlineLabel: 'điểm AI TB / 10',
+      sub:
         writingScored.length > 0
-          ? `${Math.round(Math.max(...writingScored.map((s) => s.accuracy as number)))}%`
+          ? `Độ chính xác gõ TB ${Math.round(avgAcc)}%` +
+            (writingAi.length === 0 ? ' · chưa có bài chấm AI' : '')
+          : writingAi.length === 0
+            ? 'Chưa có bài chấm AI'
+            : undefined,
+      best:
+        writingAi.length > 0
+          ? Math.max(...writingAi.map((s) => Number(s.ai_score))).toFixed(1)
           : '—',
-      values: spark(writingScored.map((s) => (s.accuracy as number) / 10)),
-      avg10: writingScored.length > 0 ? avgAcc / 10 : null,
+      values: spark(writingAi.map((s) => Number(s.ai_score))),
+      avg10: avgAi,
       last: writing.length > 0 ? `Gần nhất: ${relDay(writing[0].created_at)}` : 'Chưa luyện buổi nào',
     },
     {
@@ -462,7 +517,7 @@ export function DashboardView({
       href: '/speaking',
       title: 'Luyện Nói',
       Icon: MicrophoneIcon,
-      count: speaking.length,
+      count: totals?.speaking ?? speaking.length,
       headline: speaking.length > 0 ? avgSpeaking.toFixed(1) : '—',
       headlineLabel: 'điểm TB / 10',
       best:
@@ -478,7 +533,7 @@ export function DashboardView({
       href: '/listening',
       title: 'Luyện Nghe',
       Icon: SpeakerWaveIcon,
-      count: listening.length,
+      count: totals?.listening ?? listening.length,
       headline: listening.length > 0 ? avgListening35.toFixed(1) : '—',
       headlineLabel: 'điểm TB / 35',
       best:
@@ -496,7 +551,7 @@ export function DashboardView({
       href: '/reading',
       title: 'Luyện Đọc',
       Icon: BookOpenIcon,
-      count: reading.length,
+      count: totals?.reading ?? reading.length,
       headline: reading.length > 0 ? avgReading40.toFixed(1) : '—',
       headlineLabel: 'điểm TB / 40',
       best:
@@ -511,7 +566,7 @@ export function DashboardView({
     },
   ];
 
-  /* 16-week activity heatmap: 16 columns of Mon–Sun weeks, rows ordered T2..CN */
+  /* 24-week activity heatmap: 24 columns of Mon–Sun weeks, rows ordered T2..CN */
   const HEAT_WEEKS = 24;
   const heatToday = startOfDay(new Date());
   const heatThisMonday = new Date(
@@ -559,10 +614,10 @@ export function DashboardView({
 
 
   const tabs: { id: HistTab; label: string; count: number }[] = [
-    { id: 'writing', label: 'Viết', count: writing.length },
-    { id: 'speaking', label: 'Nói', count: speaking.length },
-    { id: 'listening', label: 'Nghe', count: listening.length },
-    { id: 'reading', label: 'Đọc', count: reading.length },
+    { id: 'writing', label: 'Viết', count: totals?.writing ?? writing.length },
+    { id: 'speaking', label: 'Nói', count: totals?.speaking ?? speaking.length },
+    { id: 'listening', label: 'Nghe', count: totals?.listening ?? listening.length },
+    { id: 'reading', label: 'Đọc', count: totals?.reading ?? reading.length },
   ];
 
   const [tab, setTab] = useState<HistTab>('writing');
@@ -646,10 +701,10 @@ export function DashboardView({
     lR.reduce((a, s) => a + (s.duration_sec || 0), 0) +
     rR.reduce((a, s) => a + (s.duration_sec || 0), 0);
   const dist = [
-    { id: 'writing', label: 'Viết', color: '#8b5cf6', count: wR.length },
-    { id: 'speaking', label: 'Nói', color: '#f59e0b', count: sR.length },
-    { id: 'listening', label: 'Nghe', color: '#3b82f6', count: lR.length },
-    { id: 'reading', label: 'Đọc', color: '#22c55e', count: rR.length },
+    { id: 'writing', label: 'Viết', color: 'var(--skill-write)', count: wR.length },
+    { id: 'speaking', label: 'Nói', color: 'var(--skill-speak)', count: sR.length },
+    { id: 'listening', label: 'Nghe', color: 'var(--skill-listen)', count: lR.length },
+    { id: 'reading', label: 'Đọc', color: 'var(--skill-read)', count: rR.length },
   ];
   const rangeDays = new Set<string>();
   for (const s of [...wR, ...sR, ...lR, ...rR]) {
@@ -659,10 +714,10 @@ export function DashboardView({
 
   /** skill label → dot color for the slim recent-activity rows */
   const SKILL_DOT: Record<string, string> = {
-    Viết: '#8b5cf6',
-    Nói: '#f59e0b',
-    Nghe: '#3b82f6',
-    Đọc: '#22c55e',
+    Viết: 'var(--skill-write)',
+    Nói: 'var(--skill-speak)',
+    Nghe: 'var(--skill-listen)',
+    Đọc: 'var(--skill-read)',
   };
 
   /* last 7 days for the hero mini-bars */
@@ -763,6 +818,11 @@ export function DashboardView({
                     ))}
                   </div>
                   <p className="ph-cap">{weekCount} buổi trong 7 ngày qua</p>
+                  {grandTotal != null && loadedTotal < grandTotal && (
+                    <p className="ph-cap">
+                      Đã tải {loadedTotal} / {grandTotal} buổi
+                    </p>
+                  )}
                 </div>
                 <div className="card ph-side">
                   <div className="ph-row">
@@ -822,18 +882,13 @@ export function DashboardView({
                     count,
                     headline,
                     headlineLabel,
+                    sub,
                     best,
                     values,
                     avg10,
                     last,
                   }) => (
-                    <SpotlightCard
-                      key={id}
-                      className="psk-spot"
-                      theme={isDark ? 'dark' : 'light'}
-                      spotlightColor={isDark ? '#a78bfa' : '#8b5cf6'}
-                      spotlightSize={260}
-                    >
+                    <div key={id} className="psk-spot">
                       <Link
                         href={href}
                         className="psk-cardlink"
@@ -857,6 +912,17 @@ export function DashboardView({
                         </div>
                         <Sparkline values={values} />
                       </div>
+                      {sub && (
+                        <p
+                          style={{
+                            margin: '2px 0 0',
+                            fontSize: '0.82rem',
+                            color: 'var(--muted)',
+                          }}
+                        >
+                          {sub}
+                        </p>
+                      )}
                       <div className="psk-meta">
                         <span>
                           Tốt nhất <b>{best}</b>
@@ -886,7 +952,7 @@ export function DashboardView({
                         </div>
                       </div>
                       </Link>
-                    </SpotlightCard>
+                    </div>
                   )
                 )}
               </div>
@@ -1293,6 +1359,21 @@ export function DashboardView({
                     ))}
                   </div>
                 ))}
+              <LoadMore
+                skill={tab}
+                shown={
+                  tab === 'writing'
+                    ? writing.length
+                    : tab === 'speaking'
+                      ? speaking.length
+                      : tab === 'listening'
+                        ? listening.length
+                        : reading.length
+                }
+                total={totals?.[tab]}
+                onLoadMore={onLoadMore}
+                loading={loadingMore?.[tab]}
+              />
             </>
           )}
     </>

@@ -41,6 +41,8 @@ const WAVE_MAX = 80;
 interface AudioState {
   ctx: AudioContext;
   stream?: MediaStream | null;
+  /** true when `stream` is owned by the parent — never stop its tracks */
+  external?: boolean;
   src?: MediaStreamAudioSourceNode | null;
   analyser?: AnalyserNode | null;
   buf?: Uint8Array<ArrayBuffer> | null;
@@ -132,18 +134,16 @@ const clock = (ms: number): string => {
   return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
 };
 
-const openMic = async (s: PillState): Promise<void> => {
+/** Attach an analyser to a stream (own or parent-shared). */
+const attachStream = (s: PillState, stream: MediaStream, external: boolean): void => {
   const Ctx = window.AudioContext || (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
-  if (!Ctx || !navigator.mediaDevices?.getUserMedia) throw new Error('unsupported');
+  if (!Ctx) return;
   if (!s.audio) s.audio = { ctx: new Ctx() };
   const a = s.audio;
   if (a.ctx.state === 'suspended') void a.ctx.resume();
-  const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-  if (!s.listening) {
-    stream.getTracks().forEach((t) => t.stop());
-    return;
-  }
+  a.src?.disconnect();
   a.stream = stream;
+  a.external = external;
   a.src = a.ctx.createMediaStreamSource(stream);
   a.analyser = a.ctx.createAnalyser();
   a.analyser.fftSize = 256;
@@ -152,12 +152,24 @@ const openMic = async (s: PillState): Promise<void> => {
   a.buf = new Uint8Array(a.analyser.frequencyBinCount);
 };
 
+const openMic = async (s: PillState): Promise<void> => {
+  if (!navigator.mediaDevices?.getUserMedia) throw new Error('unsupported');
+  const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+  if (!s.listening) {
+    stream.getTracks().forEach((t) => t.stop());
+    return;
+  }
+  attachStream(s, stream, false);
+};
+
 const closeMic = (s: PillState): void => {
   const a = s.audio;
   if (!a?.stream) return;
-  a.stream.getTracks().forEach((t) => t.stop());
+  // Never stop a parent-owned stream's tracks — the parent owns its lifecycle.
+  if (!a.external) a.stream.getTracks().forEach((t) => t.stop());
   a.src?.disconnect();
   a.stream = null;
+  a.external = false;
   a.src = null;
   a.analyser = null;
   a.buf = null;
@@ -193,6 +205,14 @@ export interface VoicePillProps {
    * The pill begins on mount/change when this is truthy and changing.
    */
   autoBeginSignal?: number;
+  /**
+   * Stream owned by the parent (e.g. the MediaRecorder's stream). When
+   * provided with `useExternalStream`, the pill uses it for the waveform
+   * analyser and never opens its own getUserMedia — one mic stream total.
+   */
+  externalStream?: MediaStream | null;
+  /** When true, never open a mic stream of our own; wait for externalStream. */
+  useExternalStream?: boolean;
 }
 
 export default function VoicePill({
@@ -221,6 +241,8 @@ export default function VoicePill({
   onStop,
   className = '',
   autoBeginSignal = 0,
+  externalStream = null,
+  useExternalStream = false,
 }: VoicePillProps) {
   const [listening, setListening] = useState(false);
   const [pressed, setPressed] = useState(false);
@@ -260,6 +282,7 @@ export default function VoicePill({
     accentColor,
     onStart,
     onStop,
+    useExternalStream,
   });
   cfg.current = {
     attack,
@@ -276,6 +299,7 @@ export default function VoicePill({
     accentColor,
     onStart,
     onStop,
+    useExternalStream,
   };
 
   const frame = (now: number): void => {
@@ -316,7 +340,9 @@ export default function VoicePill({
     setInput(kind);
     if (!s.raf) s.raf = requestAnimationFrame(frame);
     c.onStart?.({ source: c.reactive });
-    if (c.reactive === 'mic') openMic(s).catch(() => end('mic-denied'));
+    // In shared-stream mode the parent supplies the mic stream (see the
+    // externalStream effect below) — never open a second one of our own.
+    if (c.reactive === 'mic' && !c.useExternalStream) openMic(s).catch(() => end('mic-denied'));
   };
 
   const end = (reason: string): void => {
@@ -447,6 +473,23 @@ export default function VoicePill({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // Shared-stream mode: attach the analyser to the parent's stream when it
+  // arrives; detach (without stopping its tracks) when it goes away.
+  useEffect(() => {
+    const s = st.current;
+    if (!useExternalStream || reactive !== 'mic') return;
+    if (listening && externalStream) {
+      attachStream(s, externalStream, true);
+    } else if (!externalStream && s.audio?.external) {
+      s.audio.src?.disconnect();
+      s.audio.stream = null;
+      s.audio.external = false;
+      s.audio.src = null;
+      s.audio.analyser = null;
+      s.audio.buf = null;
+    }
+  }, [listening, externalStream, useExternalStream, reactive]);
+
   // Programmatic start (e.g. exam auto-start). begin() is a no-op if already listening.
   useEffect(() => {
     if (autoBeginSignal) begin('auto');
@@ -503,9 +546,9 @@ export default function VoicePill({
       <span className="voice-pill__capsule" aria-hidden="true" />
       {waveform ? <canvas ref={waveRef} className="voice-pill__wave" aria-hidden="true" /> : null}
       {slideToCancel ? (
-        <span className="voice-pill__cancel" aria-hidden="true">
+        <span className="voice-pill__cancel">
           <HugeiconsIcon icon={ArrowLeft01Icon} size={12} strokeWidth={2.2} />
-          <span>Cancel</span>
+          <span>Hủy</span>
         </span>
       ) : null}
       {showTime ? (
@@ -518,6 +561,20 @@ export default function VoicePill({
           <HugeiconsIcon icon={Mic01Icon} size={Math.round(size * 0.54)} strokeWidth={2} />
         </span>
         <span className="voice-pill__stop" aria-hidden="true" />
+      </span>
+      {/* Screen-reader announcement of recorder state changes. */}
+      <span
+        aria-live="polite"
+        style={{
+          position: 'absolute',
+          width: 1,
+          height: 1,
+          overflow: 'hidden',
+          clip: 'rect(0, 0, 0, 0)',
+          whiteSpace: 'nowrap',
+        }}
+      >
+        {listening ? 'Đang ghi âm — bấm lần nữa để dừng' : 'Đã dừng ghi âm'}
       </span>
     </button>
   );

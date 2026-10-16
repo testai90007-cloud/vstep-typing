@@ -1,15 +1,21 @@
 // ---------------------------------------------------------------------------
 // Listening practice tests.
-// VSTEP format: Part 1 = 8 short recordings x 1 question (Q1-8);
-// Part 2 = 3 conversations x 4 questions (Q9-20); Part 3 = 3 talks x 5 (Q21-35).
+//
+// ACTUAL DATA SHAPE (56 real tests + 1 demo):
+//   Each test has exactly 3 recordings — one per part — streamed from the CDN
+//   links in the data files (https://cdn.thanhnamnguyen.dev/vstep/audio/...):
+//     Part 1: 1 recording holding ALL 8 short announcements (Q1-8)
+//     Part 2: 1 recording holding the conversations (Q9-20)
+//     Part 3: 1 recording holding the talks (Q21-35)
+//   Audio file names follow the CDN's convention (e.g. part1-2.mp3 is
+//   Part 2's audio, part1-3.mp3 is Part 3's audio) — do NOT "fix" them.
+//   Part 3 transcripts end with a "Nguồn: <url>" attribution line, which the
+//   player strips at render time.
 //
 // HOW TO ADD A REAL TEST (35 questions):
-//   1. Put 14 MP3 files in public/audio/<test-id>/ :
-//        p1-01.mp3 … p1-08.mp3   (Part 1: 8 short recordings, 1 question each)
-//        p2-01.mp3 … p2-03.mp3   (Part 2: 3 conversations, 4 questions each)
-//        p3-01.mp3 … p3-03.mp3   (Part 3: 3 talks, 5 questions each)
-//   2. Add a ListeningTest object to LISTENING_TESTS below (copy the shape of
-//      the demo test; questions are numbered 1..N automatically in order).
+//   1. Host 3 MP3 files on the CDN (one per part) and note their URLs.
+//   2. Add a ListeningTest object to the data chunks (copy the shape of an
+//      existing test; questions are numbered 1..N automatically in order).
 //   3. Redeploy the app.
 //
 // A commented template is included at the bottom of this file.
@@ -219,12 +225,15 @@ export function scoreParts(
 }
 
 // ---------------------------------------------------------------------------
-// TEMPLATE — copy, fill in, and push into LISTENING_TESTS to add a full test.
+// TEMPLATE — copy, fill in, and push into the data chunks to add a full test.
 // (See "HOW TO ADD A REAL TEST" at the top of this file.)
+// One recording per part; each recording's script holds ALL of that part's
+// audio concatenated (Part 1: 8 announcements, Part 2: conversations,
+// Part 3: talks).
 //
 // {
-//   id: 'listening-01',
-//   title: 'Đề 01',
+//   id: 'listening-57',
+//   title: 'Đề 57',
 //   subtitle: '35 câu · 40 phút',
 //   durationMin: 40,
 //   parts: [
@@ -232,46 +241,43 @@ export function scoreParts(
 //       n: 1, title: 'Part 1', hint: HINTS[1],
 //       recordings: [
 //         {
-//           id: 'p1-01',
-//           label: 'Thông báo tại sân bay',
-//           audio: '/audio/listening-01/p1-01.mp3',
-//           script: 'Full transcript of the recording…',
+//           id: 'listening-57-p1',
+//           label: 'Bài nghe Part 1',
+//           audio: 'https://<cdn>/listening-57/part1-1.mp3',
+//           script: 'All 8 announcements concatenated, numbered 1-8…',
 //           questions: [
 //             { q: 'Question text?', options: ['A', 'B', 'C', 'D'], answer: 0 },
-//             // …1 question per Part-1 recording (8 recordings → Q1–8)
+//             // …8 questions (Q1-8), one per announcement
 //           ],
 //         },
-//         // …p1-02 … p1-08
 //       ],
 //     },
 //     {
 //       n: 2, title: 'Part 2', hint: HINTS[2],
 //       recordings: [
 //         {
-//           id: 'p2-01',
-//           label: 'Hội thoại: …',
-//           audio: '/audio/listening-01/p2-01.mp3',
-//           script: 'Speaker 1: …\nSpeaker 2: …',
+//           id: 'listening-57-p2',
+//           label: 'Bài nghe Part 2',
+//           audio: 'https://<cdn>/listening-57/part1-2.mp3',
+//           script: 'All conversations concatenated…',
 //           questions: [
-//             // …4 questions per Part-2 recording (3 recordings → Q9–20)
+//             // …12 questions (Q9-20)
 //           ],
 //         },
-//         // …p2-02, p2-03
 //       ],
 //     },
 //     {
 //       n: 3, title: 'Part 3', hint: HINTS[3],
 //       recordings: [
 //         {
-//           id: 'p3-01',
-//           label: 'Bài nói: …',
-//           audio: '/audio/listening-01/p3-01.mp3',
-//           script: 'Full transcript of the talk…',
+//           id: 'listening-57-p3',
+//           label: 'Bài nghe Part 3',
+//           audio: 'https://<cdn>/listening-57/part1-3.mp3',
+//           script: 'All talks concatenated… (a trailing "Nguồn: <url>" line is stripped at render time)',
 //           questions: [
-//             // …5 questions per Part-3 recording (3 recordings → Q21–35)
+//             // …15 questions (Q21-35)
 //           ],
 //         },
-//         // …p3-02, p3-03
 //       ],
 //     },
 //   ],

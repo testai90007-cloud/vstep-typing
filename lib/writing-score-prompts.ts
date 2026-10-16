@@ -218,6 +218,50 @@ function clampScore(v: unknown): number | null {
   return Math.min(10, Math.max(0, Math.round(n * 10) / 10));
 }
 
+/** The five criteria the scoring prompt asks for, in canonical order. */
+const EXPECTED_CRITERIA = [
+  { key: 'task_achievement', name_vi: 'Hoàn thành yêu cầu đề bài' },
+  { key: 'coherence_cohesion', name_vi: 'Mạch lạc và liên kết' },
+  { key: 'vocabulary', name_vi: 'Từ vựng' },
+  { key: 'grammar', name_vi: 'Ngữ pháp' },
+  { key: 'word_count', name_vi: 'Số từ' },
+] as const;
+
+type CriterionKey = (typeof EXPECTED_CRITERIA)[number]['key'];
+
+/** Common model misspellings / variants → canonical key. */
+const CRITERION_ALIASES: Record<string, CriterionKey> = {
+  task_achievement: 'task_achievement',
+  taskachievement: 'task_achievement',
+  task: 'task_achievement',
+  coherence_cohesion: 'coherence_cohesion',
+  coherence: 'coherence_cohesion',
+  cohesion: 'coherence_cohesion',
+  coherenceandcohesion: 'coherence_cohesion',
+  vocabulary: 'vocabulary',
+  vocab: 'vocabulary',
+  grammar: 'grammar',
+  word_count: 'word_count',
+  wordcount: 'word_count',
+  word: 'word_count',
+  words: 'word_count',
+};
+
+/**
+ * Normalize a model-returned criterion key to one of the five canonical
+ * keys. Handles camelCase (wordCount), hyphens/spaces (word-count, word count)
+ * and common aliases. Returns null for unrecognized keys.
+ */
+function normalizeCriterionKey(raw: string): CriterionKey | null {
+  const snake = raw
+    .trim()
+    // camelCase → snake_case
+    .replace(/([a-z0-9])([A-Z])/g, '$1_$2')
+    .toLowerCase()
+    .replace(/[\s-]+/g, '_');
+  return CRITERION_ALIASES[snake] ?? null;
+}
+
 /** Safely parse the model's JSON (handles markdown code fences). */
 export function parseScoreJson(raw: string): { score: WritingScore | null; text: string } {
   const text = raw.trim();
@@ -227,15 +271,29 @@ export function parseScoreJson(raw: string): { score: WritingScore | null; text:
   if (fence) jsonStr = fence[1].trim();
   try {
     const o = JSON.parse(jsonStr);
-    const criteria: CriterionScore[] = Array.isArray(o.criteria)
-      ? o.criteria.slice(0, 5).map((c: Record<string, unknown>) => ({
-          key: String(c.key || ''),
-          name_vi: String(c.name_vi || c.key || ''),
+    // Normalize criterion keys against the five expected ones so a misnamed
+    // key (e.g. "wordcount" instead of "word_count") still lands on the right
+    // criterion — downstream word-count logic keys off "word_count".
+    const byKey = new Map<CriterionKey, CriterionScore>();
+    if (Array.isArray(o.criteria)) {
+      for (const c of o.criteria as Record<string, unknown>[]) {
+        const key = normalizeCriterionKey(String(c.key || ''));
+        if (!key || byKey.has(key)) continue; // unknown key or duplicate: keep first
+        const canonical = EXPECTED_CRITERIA.find((e) => e.key === key)!;
+        byKey.set(key, {
+          key,
+          name_vi: String(c.name_vi || canonical.name_vi),
           score: clampScore(c.score) ?? 0,
           comment: String(c.comment || ''),
           mistakes: Array.isArray(c.mistakes) ? c.mistakes.map(String) : [],
-        }))
-      : [];
+        });
+      }
+    }
+    // Always emit all five criteria in canonical order; a criterion the
+    // model omitted becomes a 0-score placeholder rather than vanishing.
+    const criteria: CriterionScore[] = EXPECTED_CRITERIA.map(({ key, name_vi }) =>
+      byKey.get(key) ?? { key, name_vi, score: 0, comment: '', mistakes: [] }
+    );
     const score: WritingScore = {
       is_off_topic: o.is_off_topic === true,
       overall_score: clampScore(o.overall_score) ?? 0,

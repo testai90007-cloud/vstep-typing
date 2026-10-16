@@ -182,6 +182,13 @@ export function flipThemeAnimated(
     return;
   }
 
+  // prefers-reduced-motion: skip the View Transitions reveal entirely —
+  // apply the theme instantly with no clip animation.
+  if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
+    applyTheme();
+    return;
+  }
+
   const clipPath = getThemeTransitionClipPaths(variant, x, y, maxRadius, viewportWidth, viewportHeight);
 
   root.dataset.magicuiThemeVt = 'active';

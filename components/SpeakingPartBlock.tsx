@@ -15,7 +15,6 @@ const TITLES = {
 } as const;
 
 const SUBS = {
-  1: '3 phút · trả lời 6 câu hỏi · không có thời gian chuẩn bị',
   2: '1 phút chuẩn bị + 3 phút nói · chọn 1 trong 3 giải pháp và bảo vệ lựa chọn của bạn',
   3: '1 phút chuẩn bị + 4 phút nói · triển khai chủ đề theo mind-map, sau đó tự trả lời câu hỏi mở rộng',
 } as const;
@@ -29,6 +28,12 @@ export default function SpeakingPartBlock({
   test: SpeakingTest;
   recorder: ReactNode;
 }) {
+  // Part 1 question count comes from the data — most tests have 6, a few
+  // have 7, so the header shows the real count, not a hardcoded "6".
+  const sub =
+    part === 1
+      ? `3 phút · trả lời ${test.part1.length} câu hỏi · không có thời gian chuẩn bị`
+      : SUBS[part];
   return (
     <div className="card" style={{ marginTop: 16 }}>
       <h2 style={{ margin: '0 0 4px', fontSize: '1.25rem', fontWeight: 800 }}>
@@ -36,7 +41,7 @@ export default function SpeakingPartBlock({
       </h2>
       <p style={{ color: 'var(--muted)', fontSize: '0.9rem', margin: '0 0 14px', display: 'flex', alignItems: 'center', gap: 7 }}>
         <ClockIcon width={15} height={15} />
-        {SUBS[part]}
+        {sub}
       </p>
       <div className="speak-layout">
         <div>

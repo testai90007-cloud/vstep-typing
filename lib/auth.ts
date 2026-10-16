@@ -9,6 +9,17 @@
 import NextAuth, { type DefaultSession } from 'next-auth';
 import Google from 'next-auth/providers/google';
 
+// Fail fast at import when a required env var is missing, with the var
+// named — instead of a cryptic Auth.js runtime error on first login.
+const REQUIRED_ENV = ['GOOGLE_CLIENT_ID', 'GOOGLE_CLIENT_SECRET', 'AUTH_SECRET'] as const;
+for (const name of REQUIRED_ENV) {
+  if (!process.env[name]) {
+    throw new Error(
+      `[auth] Missing required env var ${name}. Copy .env.example to .env.local and fill it in.`
+    );
+  }
+}
+
 declare module 'next-auth' {
   interface Session {
     user: {

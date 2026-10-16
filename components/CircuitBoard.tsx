@@ -3,20 +3,23 @@
 // CircuitBoard — adapted from the Cult UI circuit-board component
 // (https://www.cult-ui.com/docs/components/circuit-board, MIT licensed).
 // Animated SVG circuit traces with traveling pulses converging on a central
-// chip, wired to 3 cards below. Converted to TypeScript + vanilla CSS,
-// theme-aware via the site's CSS variables. The 3 cards are the homepage
-// utilities (Tiến độ học tập / Hồ sơ năng lực / Cài đặt AI) with internal
+// chip, wired to 4 cards below. Converted to TypeScript + vanilla CSS,
+// theme-aware via the site's CSS variables. The 4 cards are the homepage
+// utilities (Tiến độ học tập / Lịch sử / Hồ sơ năng lực / Cài đặt AI) with internal
 // Next.js links and heroicons instead of the original React/Turbopack/SWC
 // external cards. Pulse colors (blue→pink→orange) match the site's gradient
 // accent. SVG SMIL animations (animateMotion / animateTransform) are kept
-// as-is — no JS animation loop needed.
+// as-is — no JS animation loop needed. Under prefers-reduced-motion the SMIL
+// animations are paused via svg.pauseAnimations() and the glow pulse is
+// disabled in CSS.
 
-import { useId } from 'react';
+import { useEffect, useId, useRef } from 'react';
 import Link from 'next/link';
 import { motion, type Variants } from 'motion/react';
 import {
   ArrowUpRightIcon,
   ChartBarIcon,
+  ClockIcon,
   IdentificationIcon,
   Cog6ToothIcon,
 } from '@heroicons/react/24/outline';
@@ -63,6 +66,14 @@ const UTILS: UtilCard[] = [
     glowDelay: 0,
   },
   {
+    name: 'Lịch sử',
+    href: '/lich-su',
+    desc: 'Mọi buổi luyện đã lưu, lọc theo kỹ năng và xem lại chi tiết từng bài.',
+    Icon: ClockIcon,
+    glowColor: 'rgba(34, 197, 94, 0.15)',
+    glowDelay: 1.2,
+  },
+  {
     name: 'Hồ sơ năng lực',
     href: '/ho-so-nang-luc',
     desc: 'Điểm trung bình từng kỹ năng đặt cạnh ngưỡng mục tiêu B1/B2/C1 của bạn.',
@@ -82,6 +93,23 @@ const UTILS: UtilCard[] = [
 
 export default function CircuitBoard() {
   const id = useId();
+  const svgRef = useRef<SVGSVGElement | null>(null);
+
+  // prefers-reduced-motion: freeze the SMIL pulse animations (CSS can't
+  // stop SMIL, so pause the SVG's animation clock). The static traces
+  // remain visible.
+  useEffect(() => {
+    const svg = svgRef.current;
+    if (!svg) return;
+    const mq = window.matchMedia('(prefers-reduced-motion: reduce)');
+    const apply = () => {
+      if (mq.matches) svg.pauseAnimations();
+      else svg.unpauseAnimations();
+    };
+    apply();
+    mq.addEventListener('change', apply);
+    return () => mq.removeEventListener('change', apply);
+  }, []);
 
   return (
     <div className="cb">
@@ -89,6 +117,7 @@ export default function CircuitBoard() {
         <svg
           aria-label="Mạch điện nối vào chip Tiện ích"
           className="cb-svg"
+          ref={svgRef}
           fill="none"
           height="264"
           role="img"

@@ -8,6 +8,7 @@ import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import {
   ArrowLeftIcon,
+  ArrowPathIcon,
   ArrowRightIcon,
   CheckCircleIcon,
   ClockIcon,
@@ -17,7 +18,7 @@ import {
 } from '@heroicons/react/24/outline';
 import { AuthedRecorder, type ScoreResult } from './SpeakingRecorder';
 import SpeakingPartBlock from './SpeakingPartBlock';
-import { SPEAKING_TIMING } from '@/lib/speaking';
+import { SPEAKING_CRITERIA, SPEAKING_TIMING } from '@/lib/speaking';
 import type { SpeakingTest } from '@/lib/speaking-tests';
 import CountUp from '@/components/CountUp';
 
@@ -50,11 +51,22 @@ function buildPrompt(n: 1 | 2 | 3, test: SpeakingTest): string {
   );
 }
 
-export default function SpeakingMockFlow({ test }: { test: SpeakingTest }) {
+export default function SpeakingMockFlow({
+  test,
+  onChangeMode,
+}: {
+  test: SpeakingTest;
+  /** Return to the mode picker (practice/mock choice). */
+  onChangeMode?: () => void;
+}) {
   const [step, setStep] = useState<'intro' | 1 | 2 | 3 | 'done'>('intro');
   const [micError, setMicError] = useState('');
-  const [scores, setScores] = useState<(ScoreResult | null)[]>([]);
+  const [scores, setScores] = useState<(ScoreResult | null | undefined)[]>([]);
   const [partDone, setPartDone] = useState(false);
+  /** true while a part's take is uploading / being AI-scored — timers pause */
+  const [scoring, setScoring] = useState(false);
+  /** bumped when a failed part is retried, to remount its recorder */
+  const [attempt, setAttempt] = useState(0);
   /** per-part total countdown (3' / 4' / 5') + whole-exam countdown (12') */
   const [partLeft, setPartLeft] = useState(180);
   const [totalLeft, setTotalLeft] = useState(EXAM_TOTAL_SEC);
@@ -63,21 +75,34 @@ export default function SpeakingMockFlow({ test }: { test: SpeakingTest }) {
   useEffect(() => {
     if (step === 1 || step === 2 || step === 3) {
       setPartLeft(SPEAKING_TIMING[`part${step}` as 'part1' | 'part2' | 'part3'].total);
+      setScoring(false);
     }
   }, [step]);
 
   // Tick both countdowns while a part is actively running
-  // (paused on the intro, the summary, and the break between parts).
+  // (paused on the intro, the summary, the break between parts, and while
+  // AI upload/scoring is in flight — waiting on the network must not eat
+  // the exam budget).
   useEffect(() => {
     if (step !== 1 && step !== 2 && step !== 3) return;
     if (partDone) return;
+    if (scoring) return;
     if (partLeft <= 0 && totalLeft <= 0) return;
     const id = setTimeout(() => {
       setPartLeft((p) => Math.max(0, p - 1));
       setTotalLeft((t) => Math.max(0, t - 1));
     }, 1000);
     return () => clearTimeout(id);
-  }, [step, partDone, partLeft, totalLeft]);
+  }, [step, partDone, scoring, partLeft, totalLeft]);
+
+  // Total time is up: the 12-minute exam budget is exhausted — finish now,
+  // even if the current part hasn't ended. An in-flight take still lands
+  // via onPartFinished when its scoring completes, updating the summary.
+  useEffect(() => {
+    if ((step === 1 || step === 2 || step === 3) && totalLeft <= 0) {
+      setStep('done');
+    }
+  }, [step, totalLeft]);
 
   // Warn before leaving mid-exam.
   useEffect(() => {
@@ -118,9 +143,34 @@ export default function SpeakingMockFlow({ test }: { test: SpeakingTest }) {
   function restart() {
     setScores([]);
     setPartDone(false);
+    setScoring(false);
     setPartLeft(180);
     setTotalLeft(EXAM_TOTAL_SEC);
     setStep('intro');
+  }
+
+  /** Retry the current part after a mic/scoring failure: clear its failed
+   * result and remount a fresh recorder for the same part. */
+  function retryPart(n: 1 | 2 | 3) {
+    setScores((s) => {
+      const next = [...s];
+      next[n - 1] = undefined;
+      return next;
+    });
+    setPartDone(false);
+    setScoring(false);
+    setPartLeft(SPEAKING_TIMING[`part${n}` as 'part1' | 'part2' | 'part3'].total);
+    setAttempt((a) => a + 1);
+  }
+
+  /** Leave the mock mid-exam for the mode picker (asks first — the current
+   * part's in-progress take is discarded). */
+  function changeMode() {
+    if (step !== 'intro' && step !== 'done') {
+      const ok = window.confirm('Đang thi thử — đổi chế độ sẽ hủy bài thi này. Tiếp tục?');
+      if (!ok) return;
+    }
+    onChangeMode?.();
   }
 
   // ------------------------------ INTRO ------------------------------
@@ -134,7 +184,7 @@ export default function SpeakingMockFlow({ test }: { test: SpeakingTest }) {
           Thi thử Speaking — {test.title}
         </h2>
         <p style={{ color: 'var(--muted)', fontSize: '0.92rem', lineHeight: 1.7, margin: '0 0 14px' }}>
-          Mô phỏng đúng quy trình thi thật, liên tục 3 parts (~12 phút):
+          Mô phỏng đúng quy trình thi thật, liên tục 3 phần (~12 phút):
         </p>
         <ol className="q-list" style={{ marginTop: 0 }}>
           <li>
@@ -153,7 +203,7 @@ export default function SpeakingMockFlow({ test }: { test: SpeakingTest }) {
           <p style={{ margin: 0, fontSize: '0.88rem', lineHeight: 1.65 }}>
             Hết giờ chuẩn bị sẽ <strong>tự động ghi âm</strong>, hết giờ nói sẽ{' '}
             <strong>tự động dừng và chấm điểm</strong>. Không quay lại part trước, không ghi
-            âm lại. Điểm chi tiết hiện sau khi xong cả 3 parts.
+            âm lại. Điểm chi tiết hiện sau khi xong cả 3 phần.
           </p>
         </div>
         {micError && (
@@ -164,6 +214,11 @@ export default function SpeakingMockFlow({ test }: { test: SpeakingTest }) {
             <MicrophoneIcon width={18} height={18} />
             Bắt đầu thi thử
           </button>
+          {onChangeMode && (
+            <button className="btn" onClick={changeMode}>
+              Đổi chế độ
+            </button>
+          )}
         </div>
       </div>
     );
@@ -172,6 +227,8 @@ export default function SpeakingMockFlow({ test }: { test: SpeakingTest }) {
   // ------------------------------ SUMMARY ------------------------------
   if (step === 'done') {
     const valid = scores.filter((s): s is ScoreResult => !!s);
+    // Only parts whose score actually persisted count as saved.
+    const saved = scores.filter((s): s is ScoreResult => !!s && s.persisted !== false);
     const overall =
       valid.length > 0
         ? valid.reduce((a, s) => a + s.overall, 0) / valid.length
@@ -193,7 +250,19 @@ export default function SpeakingMockFlow({ test }: { test: SpeakingTest }) {
           <span style={{ color: 'var(--muted)', fontSize: '1.4rem' }}>/10</span>
         </p>
         <p style={{ margin: '6px 0 0', color: 'var(--muted)', fontSize: '0.88rem' }}>
-          Trung bình 3 parts · kết quả từng part đã lưu vào Tiến độ
+          {valid.length === 3
+            ? 'Trung bình 3 phần'
+            : valid.length > 0
+              ? `Trung bình ${valid.length} phần`
+              : 'Chưa có phần nào được chấm điểm'}
+          {' · '}
+          {valid.length > 0
+            ? saved.length === valid.length
+              ? 'kết quả từng part đã lưu vào Tiến độ'
+              : saved.length > 0
+                ? `kết quả ${saved.length}/${valid.length} part đã lưu vào Tiến độ`
+                : 'kết quả chưa lưu được vào Tiến độ'
+            : 'chưa có kết quả để lưu'}
         </p>
         <div style={{ maxWidth: 340, margin: '18px auto 0', textAlign: 'left' }}>
           {([1, 2, 3] as const).map((n) => {
@@ -210,11 +279,37 @@ export default function SpeakingMockFlow({ test }: { test: SpeakingTest }) {
                     ) : (
                       '—'
                     )}
+                    {s && s.persisted === false && (
+                      <span style={{ fontSize: '0.7rem', fontWeight: 400, color: 'var(--wrong)', marginLeft: 6 }}>
+                        chưa lưu
+                      </span>
+                    )}
                   </strong>
                 </div>
                 <div className="score-bar">
                   <div style={{ width: s ? `${s.overall * 10}%` : '0%' }} />
                 </div>
+                {s && (
+                  <details style={{ marginTop: 6 }}>
+                    <summary style={{ cursor: 'pointer', fontSize: '0.82rem', fontWeight: 600, color: 'var(--muted)' }}>
+                      Chi tiết 5 tiêu chí
+                    </summary>
+                    <div style={{ display: 'grid', gap: 6, marginTop: 8 }}>
+                      {SPEAKING_CRITERIA.map((c) => {
+                        const v = s.scores?.[c.key] ?? 0;
+                        return (
+                          <div key={c.key} style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.82rem', gap: 8 }}>
+                            <span>
+                              <strong>{c.label}</strong>{' '}
+                              <span style={{ color: 'var(--muted)' }}>· {c.vi}</span>
+                            </span>
+                            <strong>{v}</strong>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </details>
+                )}
               </div>
             );
           })}
@@ -265,26 +360,29 @@ export default function SpeakingMockFlow({ test }: { test: SpeakingTest }) {
         </div>
       </div>
 
-      <div className="seg" style={{ marginTop: 20 }} aria-label="Tiến trình thi thử">
-        {([1, 2, 3] as const).map((p) => (
-          <button
-            key={p}
-            className={p === n ? 'active' : ''}
-            disabled
-            style={{ cursor: 'default', opacity: p < n ? 0.7 : 1 }}
-          >
-            Part {p}
-            {p < n && ' ✓'}
-          </button>
-        ))}
-      </div>
+      <ol className="card-soft" style={{ marginTop: 20, display: 'flex', gap: 16, flexWrap: 'wrap', listStyle: 'none', padding: '10px 14px' }} aria-label="Tiến trình thi thử">
+        {([1, 2, 3] as const).map((p) => {
+          return (
+            <li
+              key={p}
+              aria-current={p === n ? 'step' : undefined}
+              style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: '0.88rem', fontWeight: p === n ? 700 : 400, color: p < n ? 'var(--muted)' : 'inherit' }}
+            >
+              <span>Part {p}</span>
+              <span style={{ color: 'var(--muted)', fontSize: '0.8rem' }}>
+                {p < n ? '✓ Đã xong' : p === n ? '· Đang làm' : '· Chưa làm'}
+              </span>
+            </li>
+          );
+        })}
+      </ol>
 
       <SpeakingPartBlock
         part={n}
         test={test}
         recorder={
           <AuthedRecorder
-            key={`mock-${test.id}-${n}`}
+            key={`mock-${test.id}-${n}-a${attempt}`}
             part={n}
             promptText={buildPrompt(n, test)}
             prepSec={timing.prep}
@@ -292,6 +390,7 @@ export default function SpeakingMockFlow({ test }: { test: SpeakingTest }) {
             prepLabel={timing.label}
             examMode
             sessionMode="mock"
+            onScoringStateChange={setScoring}
             onPartFinished={(r) => {
               setScores((s) => {
                 const next = [...s];
@@ -304,34 +403,74 @@ export default function SpeakingMockFlow({ test }: { test: SpeakingTest }) {
         }
       />
 
-      {partDone && (
-        <div className="card" style={{ marginTop: 14, textAlign: 'center' }}>
-          <p style={{ margin: '0 0 12px', color: 'var(--muted)', fontSize: '0.9rem' }}>
-            {n < 3
-              ? `Xong Part ${n}. Nghỉ một chút rồi sang Part ${n + 1} nhé.`
-              : 'Xong Part 3 — xem kết quả tổng nào.'}
-          </p>
-          <button className="btn primary" onClick={next} style={{ fontSize: '1rem', padding: '12px 26px' }}>
-            {n < 3 ? (
+      {partDone && (() => {
+        const failed = scores[n - 1] === null;
+        return (
+          <div className="card" style={{ marginTop: 14, textAlign: 'center' }}>
+            {failed ? (
               <>
-                Tiếp tục Part {n + 1}
-                <ArrowRightIcon width={17} height={17} />
+                <p style={{ margin: '0 0 6px', color: 'var(--wrong)', fontSize: '0.92rem', fontWeight: 600 }}>
+                  Part {n} chưa chấm được — micro hoặc AI chấm gặp lỗi, chưa có điểm.
+                </p>
+                <p style={{ margin: '0 0 12px', color: 'var(--muted)', fontSize: '0.9rem' }}>
+                  Ghi âm lại part này, hoặc bỏ qua và tiếp tục.
+                </p>
+                <div className="btn-row" style={{ justifyContent: 'center' }}>
+                  <button className="btn primary" onClick={() => retryPart(n)} style={{ fontSize: '1rem', padding: '12px 26px' }}>
+                    <ArrowPathIcon width={17} height={17} />
+                    Ghi âm lại Part {n}
+                  </button>
+                  <button className="btn" onClick={next} style={{ fontSize: '1rem', padding: '12px 26px' }}>
+                    {n < 3 ? (
+                      <>
+                        Bỏ qua, sang Part {n + 1}
+                        <ArrowRightIcon width={17} height={17} />
+                      </>
+                    ) : (
+                      <>
+                        Xem kết quả
+                        <ArrowRightIcon width={17} height={17} />
+                      </>
+                    )}
+                  </button>
+                </div>
               </>
             ) : (
               <>
-                Xem kết quả
-                <ArrowRightIcon width={17} height={17} />
+                <p style={{ margin: '0 0 12px', color: 'var(--muted)', fontSize: '0.9rem' }}>
+                  {n < 3
+                    ? `Xong Part ${n}. Nghỉ một chút rồi sang Part ${n + 1} nhé.`
+                    : 'Xong Part 3 — xem kết quả tổng nào.'}
+                </p>
+                <button className="btn primary" onClick={next} style={{ fontSize: '1rem', padding: '12px 26px' }}>
+                  {n < 3 ? (
+                    <>
+                      Tiếp tục Part {n + 1}
+                      <ArrowRightIcon width={17} height={17} />
+                    </>
+                  ) : (
+                    <>
+                      Xem kết quả
+                      <ArrowRightIcon width={17} height={17} />
+                    </>
+                  )}
+                </button>
               </>
             )}
-          </button>
-        </div>
-      )}
+          </div>
+        );
+      })()}
 
       <div className="nav-top" style={{ marginTop: 18 }}>
         <Link href="/speaking" className="back">
           <ArrowLeftIcon width={16} height={16} />
-          Bỏ thi (kết quả các part đã xong vẫn được lưu)
+          Bỏ thi (kết quả các part đã chấm xong vẫn được lưu)
         </Link>
+        {onChangeMode && (
+          <button type="button" className="back" onClick={changeMode} style={{ background: 'none', border: 'none', cursor: 'pointer', font: 'inherit' }}>
+            Đổi chế độ
+          </button>
+        )}
       </div>
     </>
   );

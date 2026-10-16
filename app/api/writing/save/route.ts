@@ -45,10 +45,34 @@ export async function POST(req: NextRequest) {
       name: session.user.name,
       image: session.user.image,
     });
-    // Self-healing columns for AI scores (0–10 scale, like speaking).
-    await sql`ALTER TABLE writing_sessions ADD COLUMN IF NOT EXISTS ai_score REAL`;
-    await sql`ALTER TABLE writing_sessions ADD COLUMN IF NOT EXISTS ai_part1 REAL`;
-    await sql`ALTER TABLE writing_sessions ADD COLUMN IF NOT EXISTS ai_part2 REAL`;
+
+    // Validate numeric fields before they reach the DB (a string accuracy
+    // used to 500; an out-of-range value used to be stored silently).
+    const bad = (msg: string) =>
+      NextResponse.json({ saved: false, reason: 'invalid-input', error: msg }, { status: 400 });
+    const numInRange = (v: unknown, min: number, max: number): v is number =>
+      typeof v === 'number' && Number.isFinite(v) && v >= min && v <= max;
+    if (body.id !== undefined && (!Number.isInteger(body.id) || body.id <= 0)) {
+      return bad('ID bản ghi không hợp lệ.');
+    }
+    if (body.aiScore !== undefined && !numInRange(body.aiScore, 0, 10)) {
+      return bad('Điểm AI phải từ 0 đến 10.');
+    }
+    if (body.aiPart1 !== undefined && !numInRange(body.aiPart1, 0, 10)) {
+      return bad('Điểm AI Task 1 phải từ 0 đến 10.');
+    }
+    if (body.aiPart2 !== undefined && !numInRange(body.aiPart2, 0, 10)) {
+      return bad('Điểm AI Task 2 phải từ 0 đến 10.');
+    }
+    if (body.accuracy !== undefined && !numInRange(body.accuracy, 0, 100)) {
+      return bad('Độ chính xác phải từ 0 đến 100.');
+    }
+    if (
+      body.durationSec !== undefined &&
+      (typeof body.durationSec !== 'number' || !Number.isFinite(body.durationSec) || body.durationSec < 0)
+    ) {
+      return bad('Thời gian làm bài không hợp lệ.');
+    }
 
     if (body.id) {
       // Attach AI scores to the row created when the exam was submitted.

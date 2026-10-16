@@ -36,6 +36,30 @@ export default function SpeakingTestPage() {
   const [mode, setMode] = useState<Mode>('pick');
   const [tab, setTab] = useState<1 | 2 | 3>(1);
 
+  /** Arrow-key navigation across the Part tabs (roving tabindex pattern). */
+  function onTabListKeyDown(e: React.KeyboardEvent<HTMLDivElement>) {
+    const keys = ['ArrowLeft', 'ArrowRight', 'Home', 'End'];
+    if (!keys.includes(e.key)) return;
+    e.preventDefault();
+    const tabs = Array.from(
+      e.currentTarget.querySelectorAll<HTMLButtonElement>('[role="tab"]')
+    );
+    const cur = tabs.findIndex((t) => t === document.activeElement);
+    const idx =
+      e.key === 'Home'
+        ? 0
+        : e.key === 'End'
+          ? tabs.length - 1
+          : e.key === 'ArrowRight'
+            ? (cur + 1) % tabs.length
+            : (cur - 1 + tabs.length) % tabs.length;
+    const next = tabs[idx];
+    if (next) {
+      next.focus();
+      next.click();
+    }
+  }
+
   if (!test) {
     return (
       <main className="page">
@@ -97,7 +121,7 @@ export default function SpeakingTestPage() {
       {mode === 'pick' && (
         <>
           <p className="lead">
-            Thi thử đủ 3 parts như thi thật — ghi âm từng part, AI chấm theo 5 tiêu
+            Thi thử đủ 3 phần như thi thật — ghi âm từng part, AI chấm theo 5 tiêu
             chí chính thức của VSTEP.
           </p>
           <div className="mode-cards">
@@ -129,12 +153,15 @@ export default function SpeakingTestPage() {
 
       {mode === 'practice' && (
         <>
-          <div className="seg" style={{ marginTop: 20 }} role="tablist" aria-label="Chọn part">
+          <div className="seg" style={{ marginTop: 20 }} role="tablist" aria-label="Chọn part" onKeyDown={onTabListKeyDown}>
             {PART_TABS.map(({ n, label, Icon }) => (
               <button
                 key={n}
                 role="tab"
+                id={`speak-tab-${n}`}
                 aria-selected={tab === n}
+                aria-controls={`speak-panel-${n}`}
+                tabIndex={tab === n ? 0 : -1}
                 className={tab === n ? 'active' : ''}
                 onClick={() => setTab(n)}
               >
@@ -146,11 +173,31 @@ export default function SpeakingTestPage() {
           <p style={{ color: 'var(--muted)', fontSize: '0.88rem', margin: '10px 0 0' }}>
             {PART_TABS[tab - 1].sub} <span className="hl">· Luyện tập</span>
           </p>
-          <SpeakingPartBlock part={tab} test={test} recorder={recorderFor(tab)} />
+          <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 10 }}>
+            <button type="button" className="btn" onClick={() => setMode('pick')}>
+              Đổi chế độ
+            </button>
+          </div>
+          {/* All three part recorders stay mounted — switching tabs only hides
+           * the inactive panels, so a scored part's ScoreCard is still there
+           * when the user comes back to its tab. */}
+          {([1, 2, 3] as const).map((n) => (
+            <div
+              key={n}
+              id={`speak-panel-${n}`}
+              role="tabpanel"
+              aria-labelledby={`speak-tab-${n}`}
+              hidden={tab !== n}
+            >
+              <SpeakingPartBlock part={n} test={test} recorder={recorderFor(n)} />
+            </div>
+          ))}
         </>
       )}
 
-      {mode === 'mock' && <SpeakingMockFlow test={test} />}
+      {mode === 'mock' && (
+        <SpeakingMockFlow test={test} onChangeMode={() => setMode('pick')} />
+      )}
     </main>
   );
 }

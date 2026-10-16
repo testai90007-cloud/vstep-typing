@@ -51,6 +51,22 @@ export function HoldPeekButton({
       onPointerUp={up}
       onPointerLeave={up}
       onPointerCancel={up}
+      onKeyDown={(e) => {
+        // Keyboard equivalent of press-and-hold: Space/Enter reveals while
+        // held, release hides. preventDefault stops page scroll (Space)
+        // and the implicit click (Space keyup / Enter keydown).
+        if (e.key === ' ' || e.key === 'Enter') {
+          e.preventDefault();
+          down();
+        }
+      }}
+      onKeyUp={(e) => {
+        if (e.key === ' ' || e.key === 'Enter') {
+          e.preventDefault();
+          up();
+        }
+      }}
+      onBlur={up}
       onContextMenu={(e) => e.preventDefault()}
     >
       <AnimatePresence>

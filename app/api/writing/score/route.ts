@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@/lib/auth';
+import { checkRateLimit, rateLimitResponse } from '@/lib/rateLimit';
 import {
   buildTask1ScorePrompt,
   buildTask2ScorePrompt,
@@ -18,24 +19,43 @@ const GEMINI_MODELS = (process.env.GEMINI_MODEL || 'gemini-3.5-flash-lite,gemini
   .map((s) => s.trim())
   .filter(Boolean);
 const OPENAI_MODEL = process.env.OPENAI_SCORE_MODEL || 'gpt-4o-mini';
-// Per-model budget: fail fast instead of hanging until the function times out.
-const GEMINI_TIMEOUT_MS = 45000;
+// Total wall-clock budget for ALL provider calls in one scoring request
+// (score + optional off-topic rewrite). Must stay under maxDuration so
+// Vercel doesn't kill the function mid-flight. Per-attempt timeouts are
+// capped at 20s and share this deadline.
+const SCORE_BUDGET_MS = 50000;
+const MAX_ATTEMPT_MS = 20000;
+// Essay length cap: ~2000 words / ~12000 chars. Unbounded essays inflate
+// the prompt/tokens and can 400 or truncate scoring.
+const MAX_ESSAY_WORDS = 2000;
+const MAX_ESSAY_CHARS = 12000;
 
 type Provider = 'openai' | 'gemini';
+
+function remainingMs(deadline: number): number {
+  return Math.max(0, deadline - Date.now());
+}
 
 async function fetchWithTimeout(url: string, init: RequestInit, ms: number): Promise<Response> {
   const ctrl = new AbortController();
   const t = setTimeout(() => ctrl.abort(), ms);
   try {
     return await fetch(url, { ...init, signal: ctrl.signal });
+  } catch (e) {
+    // Normalize an abort into the TIMEOUT sentinel the callers map to a
+    // friendly "quá thời gian" message.
+    if (e instanceof Error && e.name === 'AbortError') throw new Error('TIMEOUT');
+    throw e;
   } finally {
     clearTimeout(t);
   }
 }
 
-async function scoreWithGemini(prompt: string, apiKey: string): Promise<string> {
+async function scoreWithGemini(prompt: string, apiKey: string, deadline: number): Promise<string> {
   let lastError = '';
   for (const model of GEMINI_MODELS) {
+    const budget = Math.min(MAX_ATTEMPT_MS, remainingMs(deadline));
+    if (budget <= 0) throw new Error('TIMEOUT');
     let res: Response;
     try {
       res = await fetchWithTimeout(
@@ -56,7 +76,7 @@ async function scoreWithGemini(prompt: string, apiKey: string): Promise<string> 
             },
           }),
         },
-        GEMINI_TIMEOUT_MS
+        budget
       );
     } catch {
       // Network error / timeout → try the next model.
@@ -80,21 +100,27 @@ async function scoreWithGemini(prompt: string, apiKey: string): Promise<string> 
   throw new Error(lastError || 'Gemini scoring failed');
 }
 
-async function scoreWithOpenAI(prompt: string, apiKey: string): Promise<string> {
-  const res = await fetch('https://api.openai.com/v1/chat/completions', {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      Authorization: `Bearer ${apiKey}`,
+async function scoreWithOpenAI(prompt: string, apiKey: string, deadline: number): Promise<string> {
+  const budget = remainingMs(deadline);
+  if (budget <= 0) throw new Error('TIMEOUT');
+  const res = await fetchWithTimeout(
+    'https://api.openai.com/v1/chat/completions',
+    {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${apiKey}`,
+      },
+      body: JSON.stringify({
+        model: OPENAI_MODEL,
+        temperature: 0.3,
+        max_tokens: 4096,
+        response_format: { type: 'json_object' },
+        messages: [{ role: 'user', content: prompt }],
+      }),
     },
-    body: JSON.stringify({
-      model: OPENAI_MODEL,
-      temperature: 0.3,
-      max_tokens: 4096,
-      response_format: { type: 'json_object' },
-      messages: [{ role: 'user', content: prompt }],
-    }),
-  });
+    budget
+  );
   if (!res.ok) {
     if (res.status === 401 || res.status === 403) throw new Error('INVALID_KEY');
     throw new Error(`OpenAI scoring failed (${res.status})`);
@@ -104,8 +130,14 @@ async function scoreWithOpenAI(prompt: string, apiKey: string): Promise<string> 
 }
 
 /** Plain-text generation (no JSON schema) — used for the off-topic model answer. */
-async function generateTextWithGemini(prompt: string, apiKey: string): Promise<string | null> {
+async function generateTextWithGemini(
+  prompt: string,
+  apiKey: string,
+  deadline: number
+): Promise<string | null> {
   for (const model of GEMINI_MODELS) {
+    const budget = Math.min(MAX_ATTEMPT_MS, remainingMs(deadline));
+    if (budget <= 0) return null;
     let res: Response;
     try {
       res = await fetchWithTimeout(
@@ -118,7 +150,7 @@ async function generateTextWithGemini(prompt: string, apiKey: string): Promise<s
             generationConfig: { temperature: 0.7, maxOutputTokens: 1024 },
           }),
         },
-        GEMINI_TIMEOUT_MS
+        budget
       );
     } catch {
       continue;
@@ -138,21 +170,31 @@ async function generateTextWithGemini(prompt: string, apiKey: string): Promise<s
   return null;
 }
 
-async function generateTextWithOpenAI(prompt: string, apiKey: string): Promise<string | null> {
+async function generateTextWithOpenAI(
+  prompt: string,
+  apiKey: string,
+  deadline: number
+): Promise<string | null> {
+  const budget = remainingMs(deadline);
+  if (budget <= 0) return null;
   try {
-    const res = await fetch('https://api.openai.com/v1/chat/completions', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${apiKey}`,
+    const res = await fetchWithTimeout(
+      'https://api.openai.com/v1/chat/completions',
+      {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${apiKey}`,
+        },
+        body: JSON.stringify({
+          model: OPENAI_MODEL,
+          temperature: 0.7,
+          max_tokens: 1024,
+          messages: [{ role: 'user', content: prompt }],
+        }),
       },
-      body: JSON.stringify({
-        model: OPENAI_MODEL,
-        temperature: 0.7,
-        max_tokens: 1024,
-        messages: [{ role: 'user', content: prompt }],
-      }),
-    });
+      budget
+    );
     if (!res.ok) return null;
     const data = await res.json();
     const text = String(data.choices?.[0]?.message?.content || '').trim();
@@ -183,6 +225,10 @@ async function handleScore(req: NextRequest) {
     );
   }
 
+  // 10 scoring requests/minute per user (protects the server fallback key).
+  const rl = checkRateLimit(`writing-score:${session.user.id}`, 10, 60_000);
+  if (!rl.allowed) return rateLimitResponse(rl.retryAfterMs);
+
   let body: Record<string, unknown>;
   try {
     body = await req.json();
@@ -207,6 +253,13 @@ async function handleScore(req: NextRequest) {
     return NextResponse.json(
       { error: 'Bài viết quá ngắn để chấm. Hãy viết thêm rồi thử lại.' },
       { status: 422 }
+    );
+  }
+  const wordCount = essay.split(/\s+/).filter(Boolean).length;
+  if (wordCount > MAX_ESSAY_WORDS || essay.length > MAX_ESSAY_CHARS) {
+    return NextResponse.json(
+      { error: `Bài viết quá dài (tối đa ${MAX_ESSAY_WORDS} từ). Hãy rút gọn rồi thử lại.` },
+      { status: 400 }
     );
   }
 
@@ -235,11 +288,14 @@ async function handleScore(req: NextRequest) {
       ? buildTask1ScorePrompt({ testTitle, taskText, instructions: requirement, essay })
       : buildTask2ScorePrompt({ testTitle, taskText, instructions: requirement, essay });
 
+  // Shared deadline: score + optional off-topic rewrite must finish within budget.
+  const deadline = Date.now() + SCORE_BUDGET_MS;
+
   try {
     const feedback =
       provider === 'gemini'
-        ? await scoreWithGemini(scorePrompt, apiKey)
-        : await scoreWithOpenAI(scorePrompt, apiKey);
+        ? await scoreWithGemini(scorePrompt, apiKey, deadline)
+        : await scoreWithOpenAI(scorePrompt, apiKey, deadline);
     if (!feedback) {
       return NextResponse.json(
         { error: 'AI không trả về kết quả. Hãy thử chấm lại.' },
@@ -287,8 +343,8 @@ async function handleScore(req: NextRequest) {
         `**Test:** ${testTitle}\n**Task Title:**\n${taskTitle}\n\n**Original Content/Prompt:**\n${taskContent}\n\n**Task Instructions:**\n${requirement}`;
       const modelAnswer =
         provider === 'gemini'
-          ? await generateTextWithGemini(rewritePrompt, apiKey)
-          : await generateTextWithOpenAI(rewritePrompt, apiKey);
+          ? await generateTextWithGemini(rewritePrompt, apiKey, deadline)
+          : await generateTextWithOpenAI(rewritePrompt, apiKey, deadline);
       if (modelAnswer) score.revised_version = modelAnswer;
     }
     return NextResponse.json({ score, raw: score ? '' : text });
@@ -301,6 +357,12 @@ async function handleScore(req: NextRequest) {
             'API key không hợp lệ hoặc đã hết hạn. Kiểm tra lại key trong trang Cài đặt.',
         },
         { status: 401 }
+      );
+    }
+    if (msg === 'TIMEOUT') {
+      return NextResponse.json(
+        { error: 'Chấm bài quá thời gian cho phép (50 giây). Hãy thử chấm lại.' },
+        { status: 502 }
       );
     }
     return NextResponse.json(

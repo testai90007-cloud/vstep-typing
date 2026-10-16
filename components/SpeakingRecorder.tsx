@@ -50,6 +50,7 @@ export function RecorderPanel({
   serverKey,
   examMode = false,
   onPartFinished,
+  onScoringStateChange,
   sessionMode,
 }: {
   part: number;
@@ -67,6 +68,8 @@ export function RecorderPanel({
    */
   examMode?: boolean;
   onPartFinished?: (result: ScoreResult | null) => void;
+  /** Fires when AI upload/scoring starts/ends so a parent timer can pause. */
+  onScoringStateChange?: (scoring: boolean) => void;
   /** 'practice' | 'mock' — stored with the session for history */
   sessionMode?: string;
 }) {
@@ -88,10 +91,18 @@ export function RecorderPanel({
   const isDark = useIsDark();
   /** examMode: once an error happens, stop auto-advancing (avoid record loops) */
   const examBlockedRef = useRef(false);
+  /** increments per startRecording call — stale pending starts are discarded */
+  const startRequestRef = useRef(0);
+  /** a stop arrived while getUserMedia was pending — cancel the pending start */
+  const pendingCancelRef = useRef(false);
+  /** object URL for the recorded take, for playback in the result view */
+  const recordedUrlRef = useRef<string | null>(null);
+  const [recordedUrl, setRecordedUrl] = useState<string | null>(null);
 
   useEffect(() => {
     return () => {
       streamRef.current?.getTracks().forEach((t) => t.stop());
+      if (recordedUrlRef.current) URL.revokeObjectURL(recordedUrlRef.current);
       if (mediaRef.current && mediaRef.current.state !== 'inactive') {
         try {
           mediaRef.current.stop();
@@ -102,10 +113,21 @@ export function RecorderPanel({
     };
   }, []);
 
+  // Tell the parent when AI upload/scoring is in flight so an exam timer can
+  // pause — the wait for the network must not eat the exam budget.
+  useEffect(() => {
+    onScoringStateChange?.(phase === 'uploading');
+  }, [phase, onScoringStateChange]);
+
   function startPrep() {
     setError('');
     setResult(null);
     stoppingRef.current = false;
+    if (recordedUrlRef.current) {
+      URL.revokeObjectURL(recordedUrlRef.current);
+      recordedUrlRef.current = null;
+    }
+    setRecordedUrl(null);
     if (prepSec <= 0) {
       setPhase('ready');
     } else {
@@ -135,22 +157,65 @@ export function RecorderPanel({
   // examMode: auto-start recording when prep finishes (skip the manual step)
   useEffect(() => {
     if (!examMode || phase !== 'ready' || examBlockedRef.current) return;
+    // Wait for the server-key config check before auto-starting; the key gate
+    // inside startRecording would otherwise stall the exam flow.
+    if (!getAiSettings().apiKey && serverKey === null) return;
     const t = setTimeout(() => {
-      void startRecording().then((ok) => {
+      void startRecording().then((res) => {
         // the voice pill mounts on phase='recording'; this signal makes it
         // begin listening by itself (no imperative API on the pill)
-        if (ok) setAutoBegin((k) => k + 1);
+        if (res === 'ok') setAutoBegin((k) => k + 1);
       });
     }, 1500);
     return () => clearTimeout(t);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [examMode, phase]);
+  }, [examMode, phase, serverKey]);
 
-  async function startRecording(): Promise<boolean> {
+  /**
+   * 'ok' = recording started; 'fail' = mic/key/browser error (error shown);
+   * 'cancelled' = a stop arrived while getUserMedia was pending, so the
+   * recording never began and the pill (already idle) stays in sync.
+   */
+  async function startRecording(): Promise<'ok' | 'fail' | 'cancelled'> {
     setError('');
     stoppingRef.current = false;
+    // Key gate BEFORE recording: never waste a take when scoring is impossible.
+    const gate = getAiSettings();
+    if (!gate.apiKey && serverKey === false) {
+      setError(
+        'Cần API key để AI chấm điểm. Vào trang Cài đặt để thêm key Gemini (miễn phí) hoặc OpenAI của bạn nhé!'
+      );
+      if (examMode) {
+        examBlockedRef.current = true;
+        onPartFinished?.(null);
+      }
+      return 'fail';
+    }
+    if (!gate.apiKey && serverKey === null) {
+      // Server-key config still loading — the UI disables recording meanwhile;
+      // if we somehow get here, fail without blocking the exam flow.
+      return 'fail';
+    }
+    // Browser support check (distinct from the mic-permission error).
+    if (typeof MediaRecorder === 'undefined') {
+      setError('Trình duyệt không hỗ trợ ghi âm. Hãy dùng Chrome, Edge hoặc Safari bản mới nhất.');
+      if (examMode) {
+        examBlockedRef.current = true;
+        onPartFinished?.(null);
+      }
+      return 'fail';
+    }
+    const reqId = ++startRequestRef.current;
+    pendingCancelRef.current = false;
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      // A stop arrived while getUserMedia was pending, or a newer start
+      // superseded this one: discard the stream, recording never begins.
+      if (pendingCancelRef.current || startRequestRef.current !== reqId) {
+        stream.getTracks().forEach((t) => t.stop());
+        setPhase('ready');
+        return 'cancelled';
+      }
       streamRef.current = stream;
       const mimeType = MediaRecorder.isTypeSupported('audio/webm;codecs=opus')
         ? 'audio/webm;codecs=opus'
@@ -169,14 +234,14 @@ export function RecorderPanel({
       rec.start(500);
       setTalkLeft(talkSec);
       setPhase('recording');
-      return true;
+      return 'ok';
     } catch {
       setError('Không truy cập được micro. Hãy cho phép trình duyệt dùng micro rồi thử lại.');
       if (examMode) {
         examBlockedRef.current = true;
         onPartFinished?.(null);
       }
-      return false;
+      return 'fail';
     }
   }
 
@@ -221,8 +286,8 @@ export function RecorderPanel({
   /** Voice pill pressed (practice mode): start our MediaRecorder take. */
   function handlePillStart() {
     if (phase === 'recording' || phase === 'uploading') return;
-    void startRecording().then((ok) => {
-      if (!ok) setPillKey((k) => k + 1); // our mic failed — reset pill to idle
+    void startRecording().then((res) => {
+      if (res === 'fail') setPillKey((k) => k + 1); // our mic/key check failed — reset pill to idle
     });
   }
 
@@ -243,8 +308,15 @@ export function RecorderPanel({
       return;
     }
     // tap / release / key / escape / blur -> stop and score
-    if (phase !== 'recording') return;
-    stopRecording();
+    if (phase === 'recording') {
+      stopRecording();
+      return;
+    }
+    // A stop arrived while recording was still starting (getUserMedia
+    // pending): cancel the pending start so the recording never begins.
+    if (phase === 'ready') {
+      pendingCancelRef.current = true;
+    }
   }
 
   const pillColors = isDark
@@ -274,6 +346,12 @@ export function RecorderPanel({
       }
       return;
     }
+    // Keep the take for playback in the result view (no server persistence).
+    // The key gate already ran at recording start, so scoring is possible.
+    if (recordedUrlRef.current) URL.revokeObjectURL(recordedUrlRef.current);
+    const url = URL.createObjectURL(blob);
+    recordedUrlRef.current = url;
+    setRecordedUrl(url);
     setPhase('uploading');
     const fd = new FormData();
     fd.append('audio', blob, 'recording.webm');
@@ -283,19 +361,6 @@ export function RecorderPanel({
     // BYOK: attach the user's own provider + key when saved. When absent, the
     // server falls back to its own OPENAI_API_KEY (if configured).
     const ai = getAiSettings();
-    const canScore = !!ai.apiKey || serverKey === true;
-    if (!canScore) {
-      setError(
-        'Cần API key để AI chấm điểm. Vào trang Cài đặt để thêm key OpenAI hoặc Gemini của bạn nhé!'
-      );
-      setPhase('ready');
-      stoppingRef.current = false;
-      if (examMode) {
-        examBlockedRef.current = true;
-        onPartFinished?.(null);
-      }
-      return;
-    }
     if (ai.apiKey) {
       fd.append('provider', ai.provider);
       fd.append('apiKey', ai.apiKey);
@@ -320,6 +385,9 @@ export function RecorderPanel({
 
   const ai = getAiSettings();
   const noKeyConfigured = serverKey === false && !ai.apiKey;
+  /** Server-key config still loading and no BYOK key: don't know yet whether
+   * scoring is possible — disable recording until it resolves. */
+  const keyLoading = !ai.apiKey && serverKey === null;
 
   return (
     <div style={{ marginTop: 18 }}>
@@ -361,9 +429,9 @@ export function RecorderPanel({
         </div>
       )}
       {phase === 'ready' && examMode && (
-        <p style={{ color: 'var(--muted)', display: 'flex', alignItems: 'center', gap: 9 }}>
+        <p style={{ color: 'var(--muted)', display: 'flex', alignItems: 'center', gap: 9 }} aria-live="polite">
           <span className="rec-dot" />
-          Hết giờ chuẩn bị — bắt đầu ghi âm…
+          Đang mở micro…
         </p>
       )}
       {!examMode && (phase === 'ready' || phase === 'recording') && (
@@ -388,16 +456,24 @@ export function RecorderPanel({
               showTime
               waveform
               slideToCancel
+              disabled={keyLoading}
+              externalStream={streamRef.current}
+              useExternalStream
               ariaLabel="Ghi âm bài nói"
               onStart={handlePillStart}
               onStop={({ reason }) => handlePillStop(reason)}
             />
           </div>
-          <p style={{ fontSize: '0.8rem', color: 'var(--faint)', margin: '8px 0 0' }}>
+          <p style={{ fontSize: '0.88rem', color: 'var(--muted)', margin: '8px 0 0' }}>
             {phase === 'recording'
-              ? 'Nhấn lần nữa để dừng & chấm điểm · vuốt sang trái để hủy bản ghi'
-              : 'Chạm để ghi âm · nhấn giữ rồi thả ra cũng dừng được'}
+              ? 'Bấm lần nữa để dừng & chấm điểm · kéo sang trái để hủy bản ghi'
+              : 'Bấm 1 lần để bắt đầu, bấm lại để dừng · kéo sang trái để hủy'}
           </p>
+          {keyLoading && (
+            <p style={{ fontSize: '0.85rem', color: 'var(--muted)', margin: '8px 0 0' }} aria-live="polite">
+              Đang kiểm tra cấu hình AI…
+            </p>
+          )}
           {phase === 'ready' && (
             <div className="btn-row" style={{ justifyContent: 'center', marginTop: 12 }}>
               <button className="btn" onClick={startPrep}>
@@ -425,6 +501,8 @@ export function RecorderPanel({
               waveform
               slideToCancel={false}
               autoBeginSignal={autoBegin}
+              externalStream={streamRef.current}
+              useExternalStream
               ariaLabel="Ghi âm bài nói"
               onStart={handlePillStart}
               onStop={({ reason }) => handlePillStop(reason)}
@@ -441,7 +519,7 @@ export function RecorderPanel({
         </div>
       )}
       {error && (
-        <p style={{ color: 'var(--wrong)', fontSize: '0.9rem', display: 'flex', alignItems: 'flex-start', gap: 8 }}>
+        <p role="alert" style={{ color: 'var(--wrong)', fontSize: '0.9rem', display: 'flex', alignItems: 'flex-start', gap: 8 }}>
           <ExclamationTriangleIcon width={18} height={18} style={{ flexShrink: 0, marginTop: 1 }} />
           {error}
         </p>
@@ -456,7 +534,7 @@ export function RecorderPanel({
           </div>
         ) : (
           <>
-            <ScoreCard result={result} />
+            <ScoreCard result={result} audioUrl={recordedUrl} />
             {result.persisted === false && (
               <p style={{ fontSize: '0.85rem', color: 'var(--wrong)', margin: '10px 0 0' }}>
                 Đã chấm điểm nhưng chưa lưu được vào tiến độ (lỗi kết nối). Bài ghi âm này sẽ không hiện ở trang Tiến độ.
@@ -479,7 +557,7 @@ export function RecorderPanel({
   );
 }
 
-function ScoreCard({ result }: { result: ScoreResult }) {
+function ScoreCard({ result, audioUrl }: { result: ScoreResult; audioUrl?: string | null }) {
   return (
     <div className="card-soft">
       <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
@@ -493,6 +571,14 @@ function ScoreCard({ result }: { result: ScoreResult }) {
           <span style={{ color: 'var(--muted)', fontSize: '0.88rem' }}>/ 10 · điểm tổng</span>
         </div>
       </div>
+      {audioUrl && (
+        <div style={{ marginTop: 14 }}>
+          <p style={{ fontSize: '0.88rem', fontWeight: 600, margin: '0 0 6px' }}>
+            Nghe lại bản ghi của bạn
+          </p>
+          <audio controls src={audioUrl} style={{ width: '100%' }} />
+        </div>
+      )}
       <div style={{ display: 'grid', gap: 10, marginTop: 14 }}>
         {SPEAKING_CRITERIA.map((c, i) => {
           const v = result.scores?.[c.key] ?? 0;
@@ -512,8 +598,8 @@ function ScoreCard({ result }: { result: ScoreResult }) {
           );
         })}
       </div>
-      <p style={{ fontSize: '0.8rem', color: 'var(--faint)', marginTop: 12 }}>
-        Lưu ý: điểm Phát âm của AI chỉ mang tính tương đối vì AI không nghe trực tiếp
+      <p style={{ fontSize: '0.9rem', color: 'var(--muted)', marginTop: 12 }}>
+        <strong>Lưu ý:</strong> điểm Phát âm của AI chỉ mang tính tương đối vì AI không nghe trực tiếp
         như giám khảo người.
       </p>
       <details style={{ marginTop: 10 }} open>
@@ -540,6 +626,7 @@ export function AuthedRecorder(props: {
   prepLabel: string;
   examMode?: boolean;
   onPartFinished?: (result: ScoreResult | null) => void;
+  onScoringStateChange?: (scoring: boolean) => void;
   /** 'practice' | 'mock' — stored with the session for history */
   sessionMode?: string;
 }) {

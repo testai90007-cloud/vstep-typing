@@ -53,20 +53,16 @@
 }
 
 .step-node.active .step-circle {
-  border-color: #8b5cf6;
-  background: rgba(139, 92, 246, 0.12);
-  color: #8b5cf6;
-  box-shadow: 0 0 0 4px rgba(139, 92, 246, 0.12);
-}
-
-html[data-theme='dark'] .step-node.active .step-circle {
-  color: #a78bfa;
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+  color: var(--accent);
+  box-shadow: 0 0 0 4px color-mix(in srgb, var(--accent) 12%, transparent);
 }
 
 .step-node.complete .step-circle {
-  border-color: #8b5cf6;
-  background: #8b5cf6;
-  color: #fff;
+  border-color: var(--accent);
+  background: var(--accent);
+  color: var(--on-accent);
 }
 
 .step-name {
@@ -100,7 +96,7 @@ html[data-theme='dark'] .step-node.active .step-circle {
 .step-conn-fill {
   position: absolute;
   inset: 0;
-  background: #8b5cf6;
+  background: var(--accent);
   border-radius: 2px;
   transform-origin: left center;
 }

@@ -116,32 +116,52 @@ function MenuItem({
   }, [text, image]);
 
   useEffect(() => {
-    const setupMarquee = () => {
-      if (!marqueeInnerRef.current) return;
-      const marqueeContent = marqueeInnerRef.current.querySelector('.marquee__part');
-      if (!marqueeContent) return;
-      const contentWidth = (marqueeContent as HTMLElement).offsetWidth;
-      if (contentWidth === 0) return;
-
-      if (animationRef.current) animationRef.current.kill();
-
-      animationRef.current = gsap.to(marqueeInnerRef.current, {
-        x: -contentWidth,
-        duration: speed,
-        ease: 'none',
-        repeat: -1,
-      });
-    };
-
-    const timer = setTimeout(setupMarquee, 50);
+    // The infinite marquee tween is created lazily on first hover/focus
+    // (ensureMarquee) and paused on leave/blur — it never runs while the
+    // marquee is hidden off-screen. Under prefers-reduced-motion no tween
+    // is created at all (static marquee).
     return () => {
-      clearTimeout(timer);
       if (animationRef.current) animationRef.current.kill();
+      animationRef.current = null;
     };
-  }, [text, image, repetitions, speed]);
+  }, []);
+
+  // If the marquee content width changes (resize → new repetition count),
+  // drop the tween so the next hover rebuilds it with the fresh width.
+  useEffect(() => {
+    if (animationRef.current) {
+      animationRef.current.kill();
+      animationRef.current = null;
+    }
+  }, [repetitions]);
+
+  const ensureMarquee = () => {
+    if (animationRef.current) {
+      animationRef.current.play();
+      return;
+    }
+    if (!marqueeInnerRef.current) return;
+    if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+    const marqueeContent = marqueeInnerRef.current.querySelector('.marquee__part');
+    if (!marqueeContent) return;
+    const contentWidth = (marqueeContent as HTMLElement).offsetWidth;
+    if (contentWidth === 0) return;
+
+    animationRef.current = gsap.to(marqueeInnerRef.current, {
+      x: -contentWidth,
+      duration: speed,
+      ease: 'none',
+      repeat: -1,
+    });
+  };
+
+  const pauseMarquee = () => {
+    animationRef.current?.pause();
+  };
 
   const handleMouseEnter = (ev: React.MouseEvent) => {
     if (!itemRef.current || !marqueeRef.current || !marqueeInnerRef.current) return;
+    ensureMarquee();
     const rect = itemRef.current.getBoundingClientRect();
     const x = ev.clientX - rect.left;
     const y = ev.clientY - rect.top;
@@ -156,6 +176,7 @@ function MenuItem({
 
   const handleMouseLeave = (ev: React.MouseEvent) => {
     if (!itemRef.current || !marqueeRef.current || !marqueeInnerRef.current) return;
+    pauseMarquee();
     const rect = itemRef.current.getBoundingClientRect();
     const x = ev.clientX - rect.left;
     const y = ev.clientY - rect.top;
@@ -169,6 +190,7 @@ function MenuItem({
 
   const handleFocus = () => {
     if (!marqueeRef.current || !marqueeInnerRef.current) return;
+    ensureMarquee();
     gsap
       .timeline({ defaults: animationDefaults })
       .set(marqueeRef.current, { y: '-101%' }, 0)
@@ -178,6 +200,7 @@ function MenuItem({
 
   const handleBlur = () => {
     if (!marqueeRef.current || !marqueeInnerRef.current) return;
+    pauseMarquee();
     gsap
       .timeline({ defaults: animationDefaults })
       .to(marqueeRef.current, { y: '-101%' }, 0)

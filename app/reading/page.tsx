@@ -2,12 +2,58 @@
 
 // Reading test list: /reading
 
+import { useEffect, useState } from 'react';
 import Link from 'next/link';
-import { ArrowLeftIcon, BookOpenIcon } from '@heroicons/react/24/outline';
+import { useRouter } from 'next/navigation';
+import { useSession } from 'next-auth/react';
+import { ArrowLeftIcon, BookOpenIcon, TrophyIcon } from '@heroicons/react/24/outline';
 import ExamFormatCard from '@/components/ExamFormatCard';
-import { READING_TESTS } from '@/lib/reading-tests';
+import { TestSearchBar, type SearchItem } from '@/components/TestSearchBar';
+// The grid + search only need id/num/title — use the generated title map
+// (~29 KB), not the full ~7 MB question bank.
+import { READING_TITLE_LIST } from '@/lib/test-titles';
+
+interface ReadingSession {
+  test_id: string;
+  score: number;
+  total: number;
+  created_at: string;
+}
 
 export default function ReadingListPage() {
+  const router = useRouter();
+  const { data: session } = useSession();
+  const [best, setBest] = useState<Record<string, number>>({});
+
+  // Best score per test (parity with /listening): fetch once, best % wins.
+  useEffect(() => {
+    if (!session?.user) return;
+    fetch('/api/reading/history')
+      .then((r) => r.json())
+      .then((d) => {
+        const map: Record<string, number> = {};
+        for (const s of (d.sessions || []) as ReadingSession[]) {
+          if (s.total > 0) {
+            const pct = Math.round((s.score / s.total) * 100);
+            if (map[s.test_id] == null || pct > map[s.test_id]) map[s.test_id] = pct;
+          }
+        }
+        setBest(map);
+      })
+      .catch(() => {});
+  }, [session]);
+
+  const searchItems: SearchItem[] = READING_TITLE_LIST;
+
+  const openTest = (item: SearchItem) => {
+    router.push(`/reading/${item.id}`);
+  };
+
+  const openRandom = () => {
+    const t = READING_TITLE_LIST[Math.floor(Math.random() * READING_TITLE_LIST.length)];
+    router.push(`/reading/${t.id}`);
+  };
+
   return (
     <main className="page">
       <div className="nav-top">
@@ -48,11 +94,24 @@ export default function ReadingListPage() {
       </h2>
       <p className="lead" style={{ margin: '-4px 0 14px', fontSize: '0.9rem' }}>
         200 đề thi thử — mỗi đề gồm 4 bài đọc × 10 câu hỏi, đúng 60 phút như thi thật.
+        Gõ số đề để tìm nhanh, hoặc chọn một đề bên dưới.
       </p>
-      <div className="test-grid">
-        {READING_TESTS.map((t) => (
+      <TestSearchBar
+        items={searchItems}
+        placeholder="Tìm đề… (gõ số, vd 29)"
+        onSelect={openTest}
+        onRandom={openRandom}
+      />
+      <div className="test-grid" style={{ marginTop: 16 }}>
+        {READING_TITLE_LIST.map((t) => (
           <Link key={t.id} href={`/reading/${t.id}`} className="test-cell">
-            <strong><span className="de-word">Đề</span>{t.title.replace(/^Đề\s+/, '')}</strong>
+            <strong>{t.title.replace(/^Đề\s+/, '')}</strong>
+            {best[t.id] != null && (
+              <span className="cell-score">
+                <TrophyIcon width={12} height={12} />
+                {best[t.id]}%
+              </span>
+            )}
           </Link>
         ))}
       </div>

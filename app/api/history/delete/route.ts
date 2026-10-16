@@ -44,18 +44,20 @@ export async function POST(req: NextRequest) {
 
   try {
     // Table name comes from a fixed allowlist above — never from raw user input.
+    // Neon serverless queries return rows only, so DELETE needs RETURNING
+    // for the affected-row count (without it, r.length is always 0).
     let deleted = 0;
     if (skill === 'writing') {
-      const r = await sql`DELETE FROM writing_sessions WHERE id = ${id} AND user_id = ${session.user.id}`;
+      const r = await sql`DELETE FROM writing_sessions WHERE id = ${id} AND user_id = ${session.user.id} RETURNING id`;
       deleted = r.length;
     } else if (skill === 'speaking') {
-      const r = await sql`DELETE FROM speaking_sessions WHERE id = ${id} AND user_id = ${session.user.id}`;
+      const r = await sql`DELETE FROM speaking_sessions WHERE id = ${id} AND user_id = ${session.user.id} RETURNING id`;
       deleted = r.length;
     } else if (skill === 'listening') {
-      const r = await sql`DELETE FROM listening_sessions WHERE id = ${id} AND user_id = ${session.user.id}`;
+      const r = await sql`DELETE FROM listening_sessions WHERE id = ${id} AND user_id = ${session.user.id} RETURNING id`;
       deleted = r.length;
     } else {
-      const r = await sql`DELETE FROM reading_sessions WHERE id = ${id} AND user_id = ${session.user.id}`;
+      const r = await sql`DELETE FROM reading_sessions WHERE id = ${id} AND user_id = ${session.user.id} RETURNING id`;
       deleted = r.length;
     }
     if (deleted === 0) {

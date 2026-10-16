@@ -11,6 +11,7 @@ import { signIn, useSession } from 'next-auth/react';
 import {
   ArrowLeftIcon,
   ArrowRightIcon,
+  BookOpenIcon,
   SpeakerWaveIcon,
   MicrophoneIcon,
   PencilSquareIcon,
@@ -19,6 +20,16 @@ import {
   ExclamationTriangleIcon,
   IdentificationIcon,
 } from '@heroicons/react/24/outline';
+import type {
+  ListeningSession,
+  ReadingSession,
+  SpeakingSession,
+  WritingSession,
+} from '@/components/ProgressDashboard';
+import VocabXpBar from '@/components/VocabXpBar';
+import VocabFramePicker from '@/components/VocabFramePicker';
+import type { VocabStats } from '@/lib/vocab-gamification';
+import { fetchServerState, loadLocalStats } from '@/lib/vocab-client';
 
 type Level = 'B1' | 'B2' | 'C1';
 
@@ -30,27 +41,17 @@ const LEVELS: { id: Level; threshold: number }[] = [
 
 const LEVEL_STORAGE_KEY = 'vstep_target_level';
 
-interface WritingSession {
-  accuracy: number;
-  ai_score?: number | null;
-  created_at: string;
-}
-interface SpeakingSession {
-  overall: number;
-  created_at: string;
-}
-interface ListeningSession {
-  score: number;
-  total: number;
-  created_at: string;
-}
-
 interface SkillStat {
-  id: 'listen' | 'speak' | 'write';
+  id: 'listen' | 'read' | 'speak' | 'write';
   name: string;
   href: string;
   avg: number | null; // 0–10, null when no scored sessions
   count: number;
+  /** Writing only: AI essay score average (ai_score sessions). Never mixed
+   * with typing accuracy — they measure different things. */
+  aiAvg?: number | null;
+  /** Writing only: typing accuracy average (accuracy sessions), 0–100. */
+  accAvg?: number | null;
 }
 
 function mean(xs: number[]): number | null {
@@ -92,7 +93,8 @@ function RadarChart({
   const cx = 220;
   const cy = 190;
   const R = 118;
-  const ANGLES = [-90, 30, 150]; // Nghe (top), Nói (bottom-right), Viết (bottom-left)
+  // 4 axes, clockwise from top: Nghe (top), Đọc (right), Nói (bottom), Viết (left)
+  const ANGLES = [-90, 0, 90, 180];
   const LABEL_D = R + 54; // generous gap so labels never touch the chart
 
   const polar = (i: number, v: number): [number, number] => {
@@ -108,9 +110,9 @@ function RadarChart({
 
   const hasData = skills.some((s) => s.avg != null);
   const userVals = skills.map((s) => s.avg ?? 0);
-  const targetVals = [threshold, threshold, threshold];
+  const targetVals = [threshold, threshold, threshold, threshold];
   const aria =
-    `Biểu đồ radar 3 kỹ năng. ` +
+    `Biểu đồ radar 4 kỹ năng. ` +
     skills.map((s) => `${s.name}: ${s.avg != null ? s.avg.toFixed(1) : 'chưa có dữ liệu'}`).join(', ') +
     `. Ngưỡng mục tiêu ${level}: ${threshold.toFixed(1)}.`;
 
@@ -140,7 +142,7 @@ function RadarChart({
           />
         ))}
         {/* spokes */}
-        {[0, 1, 2].map((i) => {
+        {[0, 1, 2, 3].map((i) => {
           const [x, y] = polar(i, 10);
           return (
             <line key={i} x1={cx} y1={cy} x2={x} y2={y} stroke="var(--line)" strokeWidth={1} opacity={0.4} />
@@ -187,7 +189,8 @@ function RadarChart({
         {/* axis labels — skill name only, kept well clear of the chart */}
         {skills.map((s, i) => {
           const [x, y] = labelPos(i);
-          const anchor = i === 0 ? 'middle' : i === 1 ? 'start' : 'end';
+          // top → middle, right → start, bottom → middle, left → end
+          const anchor = i === 0 || i === 2 ? 'middle' : i === 1 ? 'start' : 'end';
           return (
             <text
               key={s.id}
@@ -242,6 +245,58 @@ function RadarChart({
   );
 }
 
+/* ------------------------- vocabulary frames ------------------------- */
+
+/** "Khung của bạn": XP bar + frame picker. Server stats when signed in,
+ * localStorage fallback for guests. Shown outside the login gate below. */
+function VocabSection() {
+  const { data: session } = useSession();
+  const [stats, setStats] = useState<VocabStats | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    async function load() {
+      if (!session?.user) {
+        if (!cancelled) setStats(loadLocalStats());
+        return;
+      }
+      const server = await fetchServerState();
+      if (!cancelled) setStats(server ? server.stats : loadLocalStats());
+    }
+    load();
+    return () => {
+      cancelled = true;
+    };
+  }, [session]);
+
+  return (
+    <div className="card" style={{ marginTop: 14 }}>
+      <h2 className="section-title" style={{ marginTop: 0 }}>
+        Khung của bạn
+      </h2>
+      {!stats ? (
+        <p style={{ color: 'var(--muted)', margin: 0 }}>Đang tải…</p>
+      ) : (
+        <>
+          <VocabXpBar stats={stats} />
+          <div style={{ marginTop: 18 }}>
+            <VocabFramePicker
+              stats={stats}
+              onSelect={(frameId) =>
+                setStats((s) => (s ? { ...s, activeFrame: frameId } : s))
+              }
+            />
+          </div>
+          <p style={{ margin: '14px 0 0', fontSize: '0.82rem', color: 'var(--faint)', lineHeight: 1.6 }}>
+            Khung chỉ để trang trí quanh avatar, không ảnh hưởng điểm số hay gameplay. Mở khóa
+            khung mới bằng cách lên cấp, giữ chuỗi ngày học hoặc chinh phục C1.
+          </p>
+        </>
+      )}
+    </div>
+  );
+}
+
 /* --------------------------------- page --------------------------------- */
 
 export default function CompetencyPage() {
@@ -250,7 +305,10 @@ export default function CompetencyPage() {
   const [writing, setWriting] = useState<WritingSession[]>([]);
   const [speaking, setSpeaking] = useState<SpeakingSession[]>([]);
   const [listening, setListening] = useState<ListeningSession[]>([]);
+  const [reading, setReading] = useState<ReadingSession[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState(false);
+  const [retryKey, setRetryKey] = useState(0);
 
   useEffect(() => {
     try {
@@ -267,19 +325,43 @@ export default function CompetencyPage() {
       setLoading(false);
       return;
     }
+    setLoadError(false);
+    // Fetch ALL pages (limit/offset loop) — the API defaults to 100, but the
+    // averages below are over "tất cả buổi luyện", so a bare fetch would
+    // silently drop older sessions.
+    const fetchAll = async (url: string) => {
+      const all: never[] = [];
+      const LIMIT = 100;
+      let offset = 0;
+      for (;;) {
+        const res = await fetch(`${url}?limit=${LIMIT}&offset=${offset}`);
+        const data = await res.json();
+        const sessions = (data?.sessions || []) as never[];
+        all.push(...sessions);
+        const total = typeof data?.total === 'number' ? data.total : sessions.length;
+        offset += sessions.length;
+        if (sessions.length === 0 || offset >= total) break;
+      }
+      return all;
+    };
     Promise.all([
-      fetch('/api/writing/history').then((r) => r.json()),
-      fetch('/api/speaking/history').then((r) => r.json()),
-      fetch('/api/listening/history').then((r) => r.json()),
+      fetchAll('/api/writing/history'),
+      fetchAll('/api/speaking/history'),
+      fetchAll('/api/listening/history'),
+      fetchAll('/api/reading/history'),
     ])
-      .then(([w, s, l]) => {
-        setWriting(w.sessions || []);
-        setSpeaking(s.sessions || []);
-        setListening(l.sessions || []);
+      .then(([w, s, l, rd]) => {
+        setWriting(w as WritingSession[]);
+        setSpeaking(s as SpeakingSession[]);
+        setListening(l as ListeningSession[]);
+        setReading(rd as ReadingSession[]);
       })
-      .catch(() => {})
+      .catch(() => {
+        // A failed fetch must NOT look like "no data" — surface an error.
+        setLoadError(true);
+      })
       .finally(() => setLoading(false));
-  }, [status, session]);
+  }, [status, session, retryKey]);
 
   function pickLevel(l: Level) {
     setLevel(l);
@@ -296,12 +378,25 @@ export default function CompetencyPage() {
   const listenAvg = mean(
     listening.filter((s) => s.total > 0 && s.score != null).map((s) => (s.score / s.total) * 10)
   );
-  const speakAvg = mean(speaking.filter((s) => s.overall != null).map((s) => Number(s.overall)));
-  const writeAvg = mean(
-    writing
-      .filter((s) => s.ai_score != null || s.accuracy != null)
-      .map((s) => (s.ai_score != null ? Number(s.ai_score) : Number(s.accuracy) / 10))
+  const readAvg = mean(
+    reading.filter((s) => s.total > 0 && s.score != null).map((s) => (s.score / s.total) * 10)
   );
+  const speakAvg = mean(speaking.filter((s) => s.overall != null).map((s) => Number(s.overall)));
+  // Writing is TWO separate metrics — AI essay score (writing quality, 0–10)
+  // and typing accuracy (keystroke fidelity, 0–100). They are never averaged
+  // together: a 95% typing accuracy is not a 9.5 essay.
+  const writeAiAvg = mean(
+    writing.filter((s) => s.ai_score != null).map((s) => Number(s.ai_score))
+  );
+  const writeAccAvg = mean(
+    writing.filter((s) => s.accuracy != null).map((s) => Number(s.accuracy))
+  );
+  // The radar shows the AI essay score — the actual Writing ability. Typing
+  // accuracy is displayed separately in the Writing card.
+  const writeAvg = writeAiAvg;
+  // Count uses the SAME session set as the Writing metrics' union: every
+  // session that contributed to either number.
+  const writeCount = writing.filter((s) => s.ai_score != null || s.accuracy != null).length;
 
   const skills: SkillStat[] = [
     {
@@ -310,6 +405,13 @@ export default function CompetencyPage() {
       href: '/listening',
       avg: listenAvg != null ? round1(listenAvg) : null,
       count: listening.filter((s) => s.total > 0 && s.score != null).length,
+    },
+    {
+      id: 'read',
+      name: 'Đọc',
+      href: '/reading',
+      avg: readAvg != null ? round1(readAvg) : null,
+      count: reading.filter((s) => s.total > 0 && s.score != null).length,
     },
     {
       id: 'speak',
@@ -323,12 +425,15 @@ export default function CompetencyPage() {
       name: 'Viết',
       href: '/writing',
       avg: writeAvg != null ? round1(writeAvg) : null,
-      count: writing.filter((s) => s.accuracy != null).length,
+      count: writeCount,
+      aiAvg: writeAiAvg != null ? round1(writeAiAvg) : null,
+      accAvg: writeAccAvg != null ? round1(writeAccAvg) : null,
     },
   ];
 
   const icons = {
     listen: SpeakerWaveIcon,
+    read: BookOpenIcon,
     speak: MicrophoneIcon,
     write: PencilSquareIcon,
   };
@@ -337,16 +442,24 @@ export default function CompetencyPage() {
   const totalSessions = skills.reduce((a, s) => a + s.count, 0);
   const overall = withData.length > 0 ? round1(withData.reduce((a, s) => a + (s.avg as number), 0) / withData.length) : null;
   const below = skills.filter((s) => s.avg != null && (s.avg as number) < threshold);
-  const missing = skills.filter((s) => s.avg == null);
-  const allMet = withData.length === 3 && below.length === 0;
+  // Writing with typing data but no AI-scored essay is not "missing" — it has
+  // a typing-accuracy metric, just no essay score yet.
+  const missing = skills.filter(
+    (s) => s.avg == null && !(s.id === 'write' && s.accAvg != null)
+  );
+  const allMet = withData.length === 4 && below.length === 0;
 
   function verdict(): string {
-    if (overall == null) return '';
+    // No exam-style score yet (e.g. typing-only user): the card must still
+    // say something meaningful, never render empty.
+    if (overall == null) {
+      return 'Chưa có bài thi thử nào được chấm điểm để đánh giá tổng thể — hãy làm 1 đề thi thử để nhận đánh giá.';
+    }
     const proj = projectedLevel(overall);
     if (allMet) {
       const next = level === 'B1' ? 'B2' : level === 'B2' ? 'C1' : null;
       return (
-        `Cả 3 kỹ năng đều đã đạt ngưỡng ${level} — điểm trung bình ${overall.toFixed(1)}/10. ` +
+        `Cả 4 kỹ năng đều đã đạt ngưỡng ${level} — điểm trung bình ${overall.toFixed(1)}/10. ` +
         (next ? `Thử thách tiếp theo: hướng tới ${next}!` : 'Giữ vững phong độ nhé!')
       );
     }
@@ -355,7 +468,7 @@ export default function CompetencyPage() {
       .map((s) => `${s.name} (${fmtGap((s.avg as number) - threshold)})`)
       .join(', ');
     let v =
-      `Điểm trung bình ${withData.length === 3 ? '3 kỹ năng' : `${withData.length} kỹ năng có dữ liệu`}: ` +
+      `Điểm trung bình ${withData.length === 4 ? '4 kỹ năng' : `${withData.length} kỹ năng có dữ liệu`}: ` +
       `${overall.toFixed(1)}/10 — đang ở ngưỡng ${proj}. ` +
       `Để chạm mục tiêu ${level}, bạn còn thiếu khoảng ${gap.toFixed(1)} điểm; ` +
       `${weakList} đang cần cố gắng nhất.`;
@@ -382,6 +495,29 @@ export default function CompetencyPage() {
 
       {loading ? (
         <p style={{ color: 'var(--muted)', marginTop: 18 }}>Đang tải…</p>
+      ) : loadError ? (
+        <div className="card empty" style={{ marginTop: 18 }}>
+          <span className="icon-badge">
+            <ExclamationTriangleIcon width={24} height={24} />
+          </span>
+          <p style={{ fontSize: '1.3rem', fontWeight: 800, margin: '0 0 8px' }}>
+            Không tải được dữ liệu, thử lại
+          </p>
+          <p className="lead" style={{ margin: '0 auto 16px' }}>
+            Không kết nối được tới máy chủ hoặc dữ liệu chưa đọc được. Dữ liệu
+            của bạn vẫn còn nguyên — chỉ là lần tải này bị lỗi.
+          </p>
+          <button
+            className="btn primary"
+            onClick={() => {
+              setLoading(true);
+              setLoadError(false);
+              setRetryKey((k) => k + 1);
+            }}
+          >
+            Thử lại
+          </button>
+        </div>
       ) : !session?.user ? (
         <div className="card empty" style={{ marginTop: 18 }}>
           <span className="icon-badge">
@@ -414,6 +550,10 @@ export default function CompetencyPage() {
             <Link className="btn primary" href="/listening">
               <SpeakerWaveIcon width={16} height={16} />
               Luyện Nghe
+            </Link>
+            <Link className="btn" href="/reading">
+              <BookOpenIcon width={16} height={16} />
+              Luyện Đọc
             </Link>
             <Link className="btn" href="/speaking">
               <MicrophoneIcon width={16} height={16} />
@@ -508,7 +648,9 @@ export default function CompetencyPage() {
                     </span>
                     <strong style={{ fontSize: '1.05rem' }}>Kỹ năng {s.name}</strong>
                     <span style={{ marginLeft: 'auto' }}>
-                      {s.avg == null ? (
+                      {s.id === 'write' && s.avg == null && s.accAvg != null ? (
+                        <span className="chip muted">Chưa có điểm AI</span>
+                      ) : s.avg == null ? (
                         <span className="chip muted">Chưa có dữ liệu</span>
                       ) : met ? (
                         <span className="chip ok">
@@ -539,6 +681,18 @@ export default function CompetencyPage() {
                       {s.count} buổi luyện
                     </span>
                   </div>
+                  {s.id === 'write' && s.accAvg != null && (
+                    <p style={{ margin: '10px 0 0', fontSize: '0.88rem', color: 'var(--muted)' }}>
+                      Độ chính xác gõ:{' '}
+                      <strong style={{ color: 'var(--ink)' }}>{s.accAvg.toFixed(0)}%</strong>
+                      <span style={{ color: 'var(--faint)' }}> — chỉ số luyện gõ, không phải điểm Viết</span>
+                    </p>
+                  )}
+                  {s.id === 'write' && s.avg == null && s.accAvg != null && (
+                    <p style={{ margin: '8px 0 0', fontSize: '0.82rem', color: 'var(--faint)', lineHeight: 1.6 }}>
+                      Chưa có bài Writing được chấm AI — làm một đề thi để có điểm Viết thật.
+                    </p>
+                  )}
                   {/* progress bar with target-threshold tick */}
                   <div style={{ marginTop: 16 }}>
                     <div
@@ -617,7 +771,8 @@ export default function CompetencyPage() {
                   )}
                   {s.id === 'write' && (
                     <p style={{ margin: '12px 0 0', fontSize: '0.78rem', color: 'var(--faint)', lineHeight: 1.6 }}>
-                      * Điểm Viết ở đây là độ chính xác khi gõ theo template — chưa phải điểm bài thi Writing thật.
+                      * Điểm Viết là điểm AI chấm bài thi (Task 1 + Task 2). Độ chính xác gõ là
+                      chỉ số riêng khi luyện gõ template — hai số không trộn vào nhau.
                     </p>
                   )}
                   <Link
@@ -645,6 +800,10 @@ export default function CompetencyPage() {
           </p>
         </>
       )}
+      {/* Vocabulary section: always shown (server stats when signed in,
+          localStorage fallback for guests). Streak lives only here, in the
+          vocab hub and in the profile — never on the homepage. */}
+      {!loading && !loadError && <VocabSection />}
     </main>
   );
 }

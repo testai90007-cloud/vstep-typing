@@ -18,11 +18,13 @@ import {
   listeningTitle,
   readingTitle,
   writingTitle,
+  type HistoryTotals,
   type ListeningSession,
   type ReadingSession,
   type SpeakingSession,
   type WritingSession,
 } from './ProgressDashboard';
+import { MODE_LABEL, SPEAK_CRIT, fmtDur } from '@/lib/format';
 
 export type SkillId = 'writing' | 'speaking' | 'listening' | 'reading';
 
@@ -48,22 +50,6 @@ const SKILL_META: Record<SkillId, { label: string; short: string }> = {
   reading: { label: 'Đọc', short: 'Đọc' },
 };
 
-const MODE_LABEL: Record<string, string> = {
-  practice: 'Luyện tập',
-  mock: 'Thi thử',
-  whole: 'Luyện tập',
-  sections: 'Luyện tập',
-  exam: 'Thi thử',
-};
-
-const SPEAK_CRIT: [string, string][] = [
-  ['grammar', 'Ngữ pháp'],
-  ['vocabulary', 'Từ vựng'],
-  ['pronunciation', 'Phát âm'],
-  ['fluency', 'Trôi chảy'],
-  ['discourse_management', 'Mạch lạc'],
-];
-
 function fmtDateTime(iso: string): { d: string; t: string } {
   const dt = new Date(iso);
   if (isNaN(dt.getTime())) return { d: '—', t: '' };
@@ -71,12 +57,6 @@ function fmtDateTime(iso: string): { d: string; t: string } {
     d: dt.toLocaleDateString('vi-VN', { day: '2-digit', month: '2-digit', year: 'numeric' }),
     t: dt.toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' }),
   };
-}
-
-function fmtDur(sec?: number | null): string {
-  if (sec == null) return '–';
-  const m = Math.floor(sec / 60);
-  return `${m}:${String(sec % 60).padStart(2, '0')}`;
 }
 
 function KV({ k, v }: { k: string; v: React.ReactNode }) {
@@ -242,6 +222,9 @@ export function buildRows(data: {
 export default function HistoryTable({
   data,
   onDelete,
+  totals,
+  onLoadMore,
+  loadingMore,
 }: {
   data: {
     writing: WritingSession[];
@@ -250,6 +233,11 @@ export default function HistoryTable({
     reading: ReadingSession[];
   };
   onDelete: (skill: SkillId, id: number) => Promise<boolean>;
+  /** Per-skill totals from the history APIs (null = unknown). */
+  totals?: HistoryTotals;
+  /** Loads the next page for every skill that still has more sessions. */
+  onLoadMore?: () => void;
+  loadingMore?: boolean;
 }) {
   const [query, setQuery] = useState('');
   const [skillFilter, setSkillFilter] = useState<'all' | SkillId>('all');
@@ -257,6 +245,10 @@ export default function HistoryTable({
   const [sortDir, setSortDir] = useState<1 | -1>(-1);
   const [openKey, setOpenKey] = useState<string | null>(null);
   const [deleting, setDeleting] = useState<string | null>(null);
+  /** Row awaiting delete confirmation (inline card — no window.confirm). */
+  const [confirmDelete, setConfirmDelete] = useState<HistoryRow | null>(null);
+  /** Inline delete-failure message (no window.alert). */
+  const [deleteError, setDeleteError] = useState(false);
 
   const rows = useMemo(() => buildRows(data), [data]);
 
@@ -278,8 +270,9 @@ export default function HistoryTable({
     return list;
   }, [rows, query, skillFilter, sortKey, sortDir]);
 
-  const toggleSort = (key: 'date' | 'title') => {
-    if (sortKey === key) {
+  const isFiltered = query.trim() !== '' || skillFilter !== 'all';
+
+  const toggleSort = (key: 'date' | 'title') => {    if (sortKey === key) {
       setSortDir((d) => (d === 1 ? -1 : 1));
     } else {
       setSortKey(key);
@@ -288,18 +281,54 @@ export default function HistoryTable({
   };
 
   const handleDelete = async (row: HistoryRow) => {
-    const ok = window.confirm(`Xóa bản ghi "${row.title}"? Hành động này không thể hoàn tác.`);
-    if (!ok) return;
+    setConfirmDelete(null);
+    setDeleteError(false);
     setDeleting(row.key);
     const done = await onDelete(row.skill, row.id);
     setDeleting(null);
     if (!done) {
-      window.alert('Xóa thất bại, vui lòng thử lại.');
+      setDeleteError(true);
     }
   };
 
   const sortIcon = (key: 'date' | 'title') =>
     sortKey === key ? (sortDir === 1 ? ' ↑' : ' ↓') : '';
+
+  /** Accessible sort header: real button inside th + aria-sort. */
+  const sortButton = (key: 'date' | 'title', label: string) => (
+    <button
+      type="button"
+      onClick={() => toggleSort(key)}
+      title={`Sắp xếp theo ${label.toLowerCase()}`}
+      aria-label={`Sắp xếp theo ${label.toLowerCase()}${
+        sortKey === key ? (sortDir === 1 ? ', đang tăng dần' : ', đang giảm dần') : ''
+      }`}
+      style={{
+        background: 'none',
+        border: 'none',
+        padding: 0,
+        font: 'inherit',
+        fontWeight: 'inherit',
+        color: 'inherit',
+        cursor: 'pointer',
+      }}
+    >
+      {label}
+      {sortIcon(key)}
+    </button>
+  );
+
+  // Grand total across all skills (null when any skill's total is unknown).
+  const grandTotal =
+    totals &&
+    [totals.writing, totals.speaking, totals.listening, totals.reading].every(
+      (t) => t != null
+    )
+      ? (totals.writing ?? 0) +
+        (totals.speaking ?? 0) +
+        (totals.listening ?? 0) +
+        (totals.reading ?? 0)
+      : null;
 
   return (
     <>
@@ -327,6 +356,58 @@ export default function HistoryTable({
         </select>
       </div>
 
+      {/* inline delete confirmation + failure notice */}
+      {confirmDelete && (
+        <div
+          className="card"
+          role="dialog"
+          aria-modal="true"
+          aria-label="Xác nhận xóa bản ghi"
+          style={{ marginTop: 12 }}
+        >
+          <p style={{ margin: '0 0 6px', fontWeight: 700 }}>
+            Xóa bản ghi “{confirmDelete.title}”?
+          </p>
+          <p style={{ margin: '0 0 14px', color: 'var(--muted)', fontSize: '0.9rem' }}>
+            Hành động này không thể hoàn tác.
+          </p>
+          <div className="btn-row">
+            <button
+              className="btn"
+              style={{ background: 'var(--wrong-soft)', color: 'var(--wrong)' }}
+              disabled={deleting === confirmDelete.key}
+              onClick={() => handleDelete(confirmDelete)}
+            >
+              {deleting === confirmDelete.key ? 'Đang xóa…' : 'Xóa'}
+            </button>
+            <button className="btn" onClick={() => setConfirmDelete(null)}>
+              Hủy
+            </button>
+          </div>
+        </div>
+      )}
+      {deleteError && (
+        <p role="status" style={{ color: 'var(--wrong)', fontSize: '0.9rem', marginTop: 12 }}>
+          Xóa thất bại, vui lòng thử lại.{' '}
+          <button
+            type="button"
+            onClick={() => setDeleteError(false)}
+            style={{
+              background: 'none',
+              border: 'none',
+              padding: 0,
+              font: 'inherit',
+              fontWeight: 700,
+              color: 'inherit',
+              cursor: 'pointer',
+              textDecoration: 'underline',
+            }}
+          >
+            Đóng
+          </button>
+        </p>
+      )}
+
       {filtered.length === 0 ? (
         <div className="card empty" style={{ marginTop: 12, textAlign: 'center' }}>
           <p style={{ margin: 0, color: 'var(--muted)' }}>
@@ -341,18 +422,26 @@ export default function HistoryTable({
             <thead>
               <tr>
                 <th
-                  className="sortable"
-                  onClick={() => toggleSort('date')}
-                  title="Sắp xếp theo ngày"
+                  aria-sort={
+                    sortKey === 'date'
+                      ? sortDir === 1
+                        ? 'ascending'
+                        : 'descending'
+                      : undefined
+                  }
                 >
-                  Ngày làm{sortIcon('date')}
+                  {sortButton('date', 'Ngày làm')}
                 </th>
                 <th
-                  className="sortable"
-                  onClick={() => toggleSort('title')}
-                  title="Sắp xếp theo tên đề"
+                  aria-sort={
+                    sortKey === 'title'
+                      ? sortDir === 1
+                        ? 'ascending'
+                        : 'descending'
+                      : undefined
+                  }
                 >
-                  Đề thi{sortIcon('title')}
+                  {sortButton('title', 'Đề thi')}
                 </th>
                 <th>Kỹ năng</th>
                 <th>Chế độ</th>
@@ -400,7 +489,10 @@ export default function HistoryTable({
                             title="Xóa bản ghi"
                             aria-label={`Xóa ${row.title}`}
                             disabled={deleting === row.key}
-                            onClick={() => handleDelete(row)}
+                            onClick={() => {
+                              setDeleteError(false);
+                              setConfirmDelete(row);
+                            }}
                           >
                             <TrashIcon width={17} height={17} />
                           </button>
@@ -427,9 +519,25 @@ export default function HistoryTable({
         </div>
       )}
 
-      <p className="hist-count">
-        Hiển thị <b>{filtered.length}</b> / {rows.length} dòng
-      </p>
+      <div className="hist-count" style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+        <span>
+          {isFiltered ? (
+            <>
+              Hiển thị <b>{filtered.length}</b> kết quả đã lọc · tổng{' '}
+              {grandTotal ?? rows.length} buổi
+            </>
+          ) : (
+            <>
+              Hiển thị <b>{rows.length}</b> / {grandTotal ?? rows.length} buổi
+            </>
+          )}
+        </span>
+        {grandTotal != null && rows.length < grandTotal && (
+          <button className="btn" onClick={() => onLoadMore?.()} disabled={loadingMore}>
+            {loadingMore ? 'Đang tải…' : 'Tải thêm (cả 4 kỹ năng)'}
+          </button>
+        )}
+      </div>
     </>
   );
 }

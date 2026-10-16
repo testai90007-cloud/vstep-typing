@@ -1,12 +1,14 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
+import { useSession } from 'next-auth/react';
 import {
   ArrowLeftIcon,
   DocumentTextIcon,
   PencilSquareIcon,
+  TrophyIcon,
 } from '@heroicons/react/24/outline';
 import BlurText from '@/components/BlurText';
 import { FoldedCard } from '@/components/FoldedCard';
@@ -20,12 +22,52 @@ import ExamFormatCard from '@/components/ExamFormatCard';
 
 type TplTab = 'task2' | 'task1';
 
+interface WritingSession {
+  template_id: string;
+  ai_score: number | null;
+  accuracy: number | null;
+}
+
 export default function WritingIndexPage() {
   const router = useRouter();
+  const { data: session } = useSession();
   const [tab, setTab] = useState<TplTab>('task2');
   const task2 = TEMPLATES.filter((t) => t.group === 'task2');
   const task1 = TEMPLATES.filter((t) => t.group === 'task1');
   const shown = tab === 'task2' ? task2 : task1;
+
+  // Best score per test (same convention as HistoryTable: AI score "x.x/10"
+  // when present, else typing accuracy "xx%"). Parity with the Listening list.
+  const [best, setBest] = useState<Record<string, string>>({});
+  useEffect(() => {
+    if (!session?.user) return;
+    fetch('/api/writing/history')
+      .then((r) => r.json())
+      .then((d) => {
+        const aiBest: Record<string, number> = {};
+        const accBest: Record<string, number> = {};
+        for (const s of (d.sessions || []) as WritingSession[]) {
+          const id = s.template_id;
+          if (s.ai_score != null) {
+            const v = Number(s.ai_score);
+            if (Number.isFinite(v) && (aiBest[id] == null || v > aiBest[id])) aiBest[id] = v;
+          }
+          if (s.accuracy != null) {
+            const v = Number(s.accuracy);
+            if (Number.isFinite(v) && (accBest[id] == null || v > accBest[id])) accBest[id] = v;
+          }
+        }
+        const map: Record<string, string> = {};
+        for (const id of Object.keys(aiBest)) {
+          map[id] = `${aiBest[id].toFixed(1)}/10`;
+        }
+        for (const id of Object.keys(accBest)) {
+          if (map[id] == null) map[id] = `${Math.round(accBest[id])}%`;
+        }
+        setBest(map);
+      })
+      .catch(() => {});
+  }, [session]);
 
   const searchItems: SearchItem[] = WRITING_TESTS.map((t) => ({
     id: t.id,
@@ -55,7 +97,7 @@ export default function WritingIndexPage() {
         <BlurText text="Chọn đề viết" delay={110} animateBy="words" />
       </h1>
       <p className="page-sub">
-        Task 1: thư/email ≥ 120 từ. Task 2: bài luận ≥ 250 từ. Thi thử 60 phút,
+        Task 1: thư/email tối thiểu 120 từ. Task 2: bài luận tối thiểu 250 từ. Thi thử 60 phút,
         tự động nộp khi hết giờ.
       </p>
 
@@ -67,8 +109,8 @@ export default function WritingIndexPage() {
           { value: '0–10', label: 'thang điểm' },
         ]}
         parts={[
-          { name: 'Task 1 · Thư / Email', minutes: 20, time: "20'", items: '≥ 120 từ' },
-          { name: 'Task 2 · Bài luận', minutes: 40, time: "40'", items: '≥ 250 từ' },
+          { name: 'Task 1 · Thư / Email', minutes: 20, time: "20'", items: 'tối thiểu 120 từ' },
+          { name: 'Task 2 · Bài luận', minutes: 40, time: "40'", items: 'tối thiểu 250 từ' },
         ]}
         rules={[
           'Đủ ~120 từ Task 1, ~250 từ Task 2',
@@ -84,7 +126,7 @@ export default function WritingIndexPage() {
           </span>
           Danh sách đề
         </h2>
-        <SpellBadge variant="neutral">300 đề</SpellBadge>
+        <SpellBadge variant="neutral">{WRITING_TESTS.length} đề</SpellBadge>
       </div>
       <p className="lead" style={{ margin: '-4px 0 14px', fontSize: '0.9rem' }}>
         Gõ số đề để tìm nhanh, hoặc chọn một đề bên dưới — mỗi đề gồm Task 1
@@ -105,8 +147,14 @@ export default function WritingIndexPage() {
           >
             <strong>
               <span className="de-word">Đề</span>
-              {t.title.replace(/^Đề\s+/, '')}
+              <span>{t.title.replace(/^Đề\s+/, '')}</span>
             </strong>
+            {best[t.id] != null && (
+              <span className="cell-score">
+                <TrophyIcon width={12} height={12} />
+                {best[t.id]}
+              </span>
+            )}
           </Link>
         ))}
       </div>
@@ -120,7 +168,7 @@ export default function WritingIndexPage() {
         </h2>
       </div>
       <p className="lead" style={{ margin: '-4px 0 4px', fontSize: '0.9rem' }}>
-        Khung bài mẫu cho từng dạng đề — di chuột lên thẻ để xem các phần.
+        Khung bài mẫu cho từng dạng đề — di chuột hoặc bấm vào thẻ để xem các phần.
       </p>
       <FluidTabs
         tabs={[

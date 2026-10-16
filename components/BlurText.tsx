@@ -4,7 +4,8 @@
 // Original engine kept: words/letters split, IntersectionObserver one-shot trigger,
 // per-segment staggered keyframes blur(10px)/opacity 0/y ±50 → blur(0)/opacity 1/y 0.
 // Converted to TypeScript + vanilla CSS. The original ships no
-// prefers-reduced-motion handling, so none is added here.
+// prefers-reduced-motion handling; this port renders the final state
+// immediately (no animation) when reduced motion is requested.
 
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { motion, type Transition } from 'motion/react';
@@ -59,6 +60,16 @@ export default function BlurText({
   const elements = animateBy === 'words' ? text.split(' ') : text.split('');
   const [inView, setInView] = useState(false);
   const ref = useRef<HTMLSpanElement>(null);
+  // Read after mount so SSR and the first client render agree (no
+  // hydration mismatch); the segments start at the blurred "from" state
+  // anyway, so nothing animated flashes before this effect runs.
+  const [prefersReducedMotion, setPrefersReducedMotion] = useState(false);
+
+  useEffect(() => {
+    if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
+      setPrefersReducedMotion(true);
+    }
+  }, []);
 
   useEffect(() => {
     if (!ref.current) return;
@@ -102,6 +113,15 @@ export default function BlurText({
   const times = Array.from({ length: stepCount }, (_, i) =>
     stepCount === 1 ? 0 : i / (stepCount - 1),
   );
+
+  // Reduced motion: render the final text with no animation at all.
+  if (prefersReducedMotion) {
+    return (
+      <span ref={ref} className={`blur-text ${className}`}>
+        {text}
+      </span>
+    );
+  }
 
   return (
     <span ref={ref} className={`blur-text ${className}`}>

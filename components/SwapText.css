@@ -22,13 +22,19 @@
 /* the card itself is the hover target */
 .swap-hover:hover .swap-initial,
 a:hover .swap-initial,
-.swap-text:hover .swap-initial {
+.swap-text:hover .swap-initial,
+.swap-hover:focus-visible .swap-initial,
+a:focus-visible .swap-initial,
+.swap-text:focus-visible .swap-initial {
   transform: translateY(-100%);
 }
 
 .swap-hover:hover .swap-final,
 a:hover .swap-final,
-.swap-text:hover .swap-final {
+.swap-text:hover .swap-final,
+.swap-hover:focus-visible .swap-final,
+a:focus-visible .swap-final,
+.swap-text:focus-visible .swap-final {
   transform: translateY(-100%);
 }
 

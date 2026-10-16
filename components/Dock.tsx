@@ -1122,6 +1122,7 @@ export default function Dock({
             type="button"
             className={`dock-item${item.className ? ` ${item.className}` : ''}`}
             aria-label={item.label}
+            aria-current={item.active ? 'page' : undefined}
             aria-haspopup={item.menu?.length ? 'menu' : undefined}
             aria-expanded={item.menu?.length ? openIndex === index : undefined}
             data-open={openIndex === index ? '' : undefined}

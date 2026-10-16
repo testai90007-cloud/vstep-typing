@@ -2,8 +2,9 @@
 
 // DarkVeil — adapted from the React Bits DarkVeil component
 // (https://reactbits.dev/components/dark-veil), converted to TypeScript.
-// WebGL (ogl) animated CPPN background. Always animates (the original has no
-// reduced-motion handling). Renders nothing if WebGL fails.
+// WebGL (ogl) animated CPPN background. Renders nothing if WebGL fails.
+// Reduced-motion: renders a single static frame; the rAF loop pauses while
+// the tab is hidden.
 
 import { useRef, useEffect, useState } from 'react';
 import { Renderer, Program, Mesh, Triangle, Vec2 } from 'ogl';
@@ -170,6 +171,7 @@ export default function DarkVeil({
 
     const start = performance.now();
     let frame = 0;
+    let stopped = false;
 
     const draw = (t: number) => {
       program.uniforms.uTime.value = t * speed;
@@ -183,14 +185,52 @@ export default function DarkVeil({
     };
 
     const loop = () => {
+      if (stopped) return;
       draw((performance.now() - start) / 1000);
       frame = requestAnimationFrame(loop);
     };
-    loop();
+
+    // prefers-reduced-motion: render one static frame instead of animating.
+    const mq = window.matchMedia('(prefers-reduced-motion: reduce)');
+    let reduced = mq.matches;
+    const onMqChange = (e: MediaQueryListEvent) => {
+      reduced = e.matches;
+      if (reduced) {
+        stopped = true;
+        cancelAnimationFrame(frame);
+        draw(0);
+      } else {
+        stopped = false;
+        loop();
+      }
+    };
+    mq.addEventListener('change', onMqChange);
+
+    if (reduced) {
+      draw(0);
+    } else {
+      loop();
+    }
+
+    // Pause the rAF loop while the tab is hidden (the canvas isn't visible
+    // and the homepage doesn't need to burn CPU in the background).
+    const onVisibility = () => {
+      if (document.hidden) {
+        stopped = true;
+        cancelAnimationFrame(frame);
+      } else if (!reduced) {
+        stopped = false;
+        loop();
+      }
+    };
+    document.addEventListener('visibilitychange', onVisibility);
 
     return () => {
+      stopped = true;
       cancelAnimationFrame(frame);
       window.removeEventListener('resize', resize);
+      mq.removeEventListener('change', onMqChange);
+      document.removeEventListener('visibilitychange', onVisibility);
       // NOTE: do NOT call WEBGL_lose_context here. This effect re-runs when
       // props change (e.g. theme toggle flips lightMode); losing the context
       // would make the next `new Renderer({ canvas })` reuse a dead context

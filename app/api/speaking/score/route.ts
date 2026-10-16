@@ -1,10 +1,41 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@/lib/auth';
 import { ensureUser, getSql } from '@/lib/db';
+import { checkRateLimit, rateLimitResponse } from '@/lib/rateLimit';
 
 // Transcription + LLM scoring can take a while; allow up to 60s on Vercel.
 export const runtime = 'nodejs';
 export const maxDuration = 60;
+
+// Total wall-clock budget for ALL provider calls in one scoring request
+// (transcription + scoring). Must stay under maxDuration so Vercel doesn't
+// kill the function mid-flight. Per-attempt timeouts are capped at 20s and
+// share this deadline.
+const SCORE_BUDGET_MS = 50000;
+const MAX_ATTEMPT_MS = 20000;
+// A 4-minute recording at typical webm bitrates is well under this; the cap
+// stops absurd uploads from eating the provider budget (Vercel's own
+// ~4.5 MB platform limit would otherwise reject them with a bare 413).
+const MAX_AUDIO_BYTES = 10 * 1024 * 1024;
+
+function remainingMs(deadline: number): number {
+  return Math.max(0, deadline - Date.now());
+}
+
+async function fetchWithTimeout(url: string, init: RequestInit, ms: number): Promise<Response> {
+  const ctrl = new AbortController();
+  const t = setTimeout(() => ctrl.abort(), ms);
+  try {
+    return await fetch(url, { ...init, signal: ctrl.signal });
+  } catch (e) {
+    // Normalize an abort into the TIMEOUT sentinel the caller maps to a
+    // friendly "quá thời gian" message.
+    if (e instanceof Error && e.name === 'AbortError') throw new Error('TIMEOUT');
+    throw e;
+  } finally {
+    clearTimeout(t);
+  }
+}
 
 const SCORE_MODEL = process.env.OPENAI_SCORE_MODEL || 'gpt-4o-mini';
 const GEMINI_MODELS = (process.env.GEMINI_MODEL || 'gemini-3.5-flash-lite,gemini-3.8-flash')
@@ -71,18 +102,24 @@ TRẢ VỀ ĐÚNG JSON theo shape này, không thêm chữ nào khác:
 ${prompt}`;
 }
 
-async function transcribe(audio: File, apiKey: string): Promise<string> {
+async function transcribe(audio: File, apiKey: string, deadline: number): Promise<string> {
   // Try whisper-1 first, fall back to gpt-4o-transcribe.
   for (const model of ['whisper-1', 'gpt-4o-transcribe']) {
+    const budget = Math.min(MAX_ATTEMPT_MS, remainingMs(deadline));
+    if (budget <= 0) throw new Error('TIMEOUT');
     const fd = new FormData();
     fd.append('file', audio, 'recording.webm');
     fd.append('model', model);
     fd.append('language', 'en');
-    const res = await fetch('https://api.openai.com/v1/audio/transcriptions', {
-      method: 'POST',
-      headers: { Authorization: `Bearer ${apiKey}` },
-      body: fd,
-    });
+    const res = await fetchWithTimeout(
+      'https://api.openai.com/v1/audio/transcriptions',
+      {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${apiKey}` },
+        body: fd,
+      },
+      budget
+    );
     if (res.ok) {
       const data = await res.json();
       return (data.text || '').trim();
@@ -108,27 +145,34 @@ async function scoreWithOpenAI(
   transcript: string,
   part: number,
   prompt: string,
-  apiKey: string
+  apiKey: string,
+  deadline: number
 ): Promise<LlmScore> {
-  const chatRes = await fetch('https://api.openai.com/v1/chat/completions', {
-    method: 'POST',
-    headers: {
-      Authorization: `Bearer ${apiKey}`,
-      'Content-Type': 'application/json',
+  const budget = remainingMs(deadline);
+  if (budget <= 0) throw new Error('TIMEOUT');
+  const chatRes = await fetchWithTimeout(
+    'https://api.openai.com/v1/chat/completions',
+    {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        model: SCORE_MODEL,
+        response_format: { type: 'json_object' },
+        temperature: 0.2,
+        messages: [
+          { role: 'system', content: systemPrompt(part) },
+          {
+            role: 'user',
+            content: `Task prompt given to the candidate:\n${prompt}\n\nTranscript of the candidate's speech:\n${transcript}`,
+          },
+        ],
+      }),
     },
-    body: JSON.stringify({
-      model: SCORE_MODEL,
-      response_format: { type: 'json_object' },
-      temperature: 0.2,
-      messages: [
-        { role: 'system', content: systemPrompt(part) },
-        {
-          role: 'user',
-          content: `Task prompt given to the candidate:\n${prompt}\n\nTranscript of the candidate's speech:\n${transcript}`,
-        },
-      ],
-    }),
-  });
+    budget
+  );
   if (!chatRes.ok) {
     if (chatRes.status === 401 || chatRes.status === 403) {
       throw new Error('INVALID_KEY');
@@ -148,61 +192,65 @@ async function scoreWithGemini(
   audio: File,
   part: number,
   prompt: string,
-  apiKey: string
+  apiKey: string,
+  deadline: number
 ): Promise<{ transcript: string } & LlmScore> {
   const buf = Buffer.from(await audio.arrayBuffer());
   const mimeType = audio.type || 'audio/webm';
   let lastError = '';
   for (const model of GEMINI_MODELS) {
-    const res = await fetch(
+    const budget = Math.min(MAX_ATTEMPT_MS, remainingMs(deadline));
+    if (budget <= 0) throw new Error('TIMEOUT');
+    const res = await fetchWithTimeout(
       `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`,
-    {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'x-goog-api-key': apiKey,
-      },
-      body: JSON.stringify({
-        contents: [
-          {
-            parts: [
-              { text: geminiPrompt(part, prompt) },
-              { inlineData: { mimeType, data: buf.toString('base64') } },
-            ],
-          },
-        ],
-        generationConfig: {
-          responseMimeType: 'application/json',
-          responseSchema: {
-            type: 'object',
-            properties: {
-              transcript: { type: 'string' },
-              scores: {
-                type: 'object',
-                properties: {
-                  grammar: { type: 'number' },
-                  vocabulary: { type: 'number' },
-                  pronunciation: { type: 'number' },
-                  fluency: { type: 'number' },
-                  discourse_management: { type: 'number' },
-                },
-                required: [
-                  'grammar',
-                  'vocabulary',
-                  'pronunciation',
-                  'fluency',
-                  'discourse_management',
-                ],
-              },
-              feedback_vi: { type: 'string' },
-            },
-            required: ['transcript', 'scores', 'feedback_vi'],
-          },
+      {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-goog-api-key': apiKey,
         },
-      }),
-    }
-  );
-  if (!res.ok) {
+        body: JSON.stringify({
+          contents: [
+            {
+              parts: [
+                { text: geminiPrompt(part, prompt) },
+                { inlineData: { mimeType, data: buf.toString('base64') } },
+              ],
+            },
+          ],
+          generationConfig: {
+            responseMimeType: 'application/json',
+            responseSchema: {
+              type: 'object',
+              properties: {
+                transcript: { type: 'string' },
+                scores: {
+                  type: 'object',
+                  properties: {
+                    grammar: { type: 'number' },
+                    vocabulary: { type: 'number' },
+                    pronunciation: { type: 'number' },
+                    fluency: { type: 'number' },
+                    discourse_management: { type: 'number' },
+                  },
+                  required: [
+                    'grammar',
+                    'vocabulary',
+                    'pronunciation',
+                    'fluency',
+                    'discourse_management',
+                  ],
+                },
+                feedback_vi: { type: 'string' },
+              },
+              required: ['transcript', 'scores', 'feedback_vi'],
+            },
+          },
+        }),
+      },
+      budget
+    );
+    if (!res.ok) {
       if (res.status === 400 || res.status === 401 || res.status === 403) {
         throw new Error('INVALID_KEY');
       }
@@ -238,6 +286,10 @@ export async function POST(req: NextRequest) {
     );
   }
 
+  // 10 scoring requests/minute per user (protects the server fallback key).
+  const rl = checkRateLimit(`speaking-score:${session.user.id}`, 10, 60_000);
+  if (!rl.allowed) return rateLimitResponse(rl.retryAfterMs);
+
   let form: FormData;
   try {
     form = await req.formData();
@@ -256,6 +308,12 @@ export async function POST(req: NextRequest) {
 
   if (!(audio instanceof File) || audio.size === 0) {
     return NextResponse.json({ error: 'Thiếu file ghi âm.' }, { status: 400 });
+  }
+  if (audio.size > MAX_AUDIO_BYTES) {
+    return NextResponse.json(
+      { error: 'File ghi âm quá lớn (tối đa 10MB). Hãy ghi âm ngắn lại rồi thử lại.' },
+      { status: 400 }
+    );
   }
   if (![1, 2, 3].includes(part)) {
     return NextResponse.json({ error: 'Part không hợp lệ.' }, { status: 400 });
@@ -285,16 +343,19 @@ export async function POST(req: NextRequest) {
     let rawScores: Record<string, unknown>;
     let feedback: string;
 
+    // Shared deadline: transcription + scoring must finish within budget.
+    const deadline = Date.now() + SCORE_BUDGET_MS;
+
     if (provider === 'gemini') {
-      const out = await scoreWithGemini(audio, part, prompt, apiKey);
+      const out = await scoreWithGemini(audio, part, prompt, apiKey, deadline);
       transcript = out.transcript;
       rawScores = out.scores;
       feedback = out.feedback_vi;
     } else {
       // 1. Transcribe
-      transcript = await transcribe(audio, apiKey);
+      transcript = await transcribe(audio, apiKey, deadline);
       // 2. Score with the LLM
-      const out = await scoreWithOpenAI(transcript, part, prompt, apiKey);
+      const out = await scoreWithOpenAI(transcript, part, prompt, apiKey, deadline);
       rawScores = out.scores;
       feedback = out.feedback_vi;
     }
@@ -335,7 +396,6 @@ export async function POST(req: NextRequest) {
           name: session.user.name,
           image: session.user.image,
         });
-        await sql`ALTER TABLE speaking_sessions ADD COLUMN IF NOT EXISTS mode TEXT`;
         await sql`INSERT INTO speaking_sessions (user_id, part, prompt, transcript, scores, overall, feedback, mode)
                   VALUES (${session.user.id}, ${part}, ${prompt}, ${transcript},
                           ${JSON.stringify(scores)}::jsonb, ${overall}, ${feedback}, ${sessionMode})`;
@@ -353,6 +413,12 @@ export async function POST(req: NextRequest) {
       return NextResponse.json(
         { error: 'API key không hợp lệ hoặc đã hết hạn. Kiểm tra lại key trong trang Cài đặt.' },
         { status: 401 }
+      );
+    }
+    if (msg === 'TIMEOUT') {
+      return NextResponse.json(
+        { error: 'Chấm bài quá thời gian cho phép (50 giây). Hãy thử chấm lại.' },
+        { status: 502 }
       );
     }
     console.error('speaking/score failed:', msg);

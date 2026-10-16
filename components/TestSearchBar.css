@@ -170,3 +170,10 @@ html[data-theme='dark'] .tsb-row.active {
     max-width: none;
   }
 }
+
+/* The "/" shortcut hint is useless on touch — hide it on coarse pointers. */
+@media (pointer: coarse) {
+  .tsb-kbd {
+    display: none;
+  }
+}

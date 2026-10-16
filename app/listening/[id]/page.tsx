@@ -9,6 +9,7 @@ import { useParams } from 'next/navigation';
 import { useSession } from 'next-auth/react';
 import {
   ArrowLeftIcon,
+  ArrowPathIcon,
   BookOpenIcon,
   ClockIcon,
   CheckIcon,
@@ -26,6 +27,89 @@ function fmtTime(sec: number): string {
   const m = Math.floor(Math.max(0, sec) / 60);
   const s = Math.max(0, sec) % 60;
   return `${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
+}
+
+/** Strip the trailing "Nguồn: <url>" attribution line from a transcript at render time. */
+function stripSource(script: string): string {
+  return script.replace(/\s*Nguồn:\s*\S+\s*$/, '');
+}
+
+/**
+ * Audio player with load-failure handling and (mock mode) replay limiting.
+ * On a load error it shows a clear message + retry instead of a dead player.
+ * In mock mode `blockSeekBack` clamps seeking to the furthest point already
+ * reached, so scrubbing back to re-listen inside the single allowed play
+ * is not possible (seeking forward stays allowed).
+ */
+function ListeningAudio({
+  src,
+  exhausted,
+  onEnded,
+  blockSeekBack,
+}: {
+  src: string;
+  /** mock mode: this recording already had its one full play — replay blocked */
+  exhausted?: boolean;
+  onEnded?: () => void;
+  /** mock mode: forbid seeking back before the furthest point reached */
+  blockSeekBack?: boolean;
+}) {
+  const [failed, setFailed] = useState(false);
+  const [retryKey, setRetryKey] = useState(0);
+  const audioRef = useRef<HTMLAudioElement | null>(null);
+  /** furthest playback position reached (seconds) — the seek-back floor */
+  const maxReachedRef = useRef(0);
+  if (exhausted) {
+    return (
+      <p style={{ margin: '8px 0', fontSize: '0.9rem', color: 'var(--muted)' }}>
+        Đã nghe 1 lần — chế độ Thi thử chỉ cho nghe mỗi đoạn 1 lần.
+      </p>
+    );
+  }
+  if (failed) {
+    return (
+      <div className="card-soft" style={{ padding: '12px 14px' }}>
+        <p style={{ margin: '0 0 10px', fontSize: '0.9rem' }}>
+          Không tải được file nghe. Kiểm tra kết nối mạng rồi thử lại.
+        </p>
+        <button
+          type="button"
+          className="btn"
+          onClick={() => {
+            setFailed(false);
+            maxReachedRef.current = 0;
+            setRetryKey((k) => k + 1);
+          }}
+        >
+          Thử tải lại
+        </button>
+      </div>
+    );
+  }
+  return (
+    <audio
+      ref={audioRef}
+      key={retryKey}
+      controls
+      src={src}
+      style={{ width: '100%' }}
+      preload="metadata"
+      onError={() => setFailed(true)}
+      onEnded={onEnded}
+      onTimeUpdate={() => {
+        const el = audioRef.current;
+        if (el) maxReachedRef.current = Math.max(maxReachedRef.current, el.currentTime);
+      }}
+      onSeeked={() => {
+        const el = audioRef.current;
+        if (blockSeekBack && el && el.currentTime < maxReachedRef.current - 0.5) {
+          el.currentTime = maxReachedRef.current;
+        } else if (el) {
+          maxReachedRef.current = Math.max(maxReachedRef.current, el.currentTime);
+        }
+      }}
+    />
+  );
 }
 
 export default function ListeningPlayerPage() {
@@ -60,15 +144,44 @@ export default function ListeningPlayerPage() {
   /** practice mode: recordings whose answers were checked immediately */
   const [checked, setChecked] = useState<Record<string, boolean>>({});
   const [saveState, setSaveState] = useState<'idle' | 'saving' | 'saved' | 'skipped' | 'error'>('idle');
+  /** mock mode: completed plays per recording id (1 full play = replay blocked) */
+  const [plays, setPlays] = useState<Record<string, number>>({});
+  /** mobile sticky bar: question palette collapsed by default (35 buttons) */
+  const [paletteOpen, setPaletteOpen] = useState(false);
   const submittedRef = useRef(false);
   const startRef = useRef<number>(0);
 
   useEffect(() => {
     if (test) {
       setTimeLeft(test.durationMin * 60);
-      startRef.current = Date.now();
     }
   }, [test]);
+
+  // Start the recorded duration when the user picks a mode (not on page mount,
+  // so idle time on the mode-picker screen doesn't inflate the duration).
+  useEffect(() => {
+    if (mode !== 'pick') {
+      startRef.current = Date.now();
+    }
+  }, [mode]);
+
+  // Warn before leaving mid-test (answers live in memory until submit).
+  useEffect(() => {
+    if (mode === 'pick' || submitted) return;
+    const onBefore = (e: BeforeUnloadEvent) => {
+      e.preventDefault();
+    };
+    window.addEventListener('beforeunload', onBefore);
+    return () => window.removeEventListener('beforeunload', onBefore);
+  }, [mode, submitted]);
+
+  const handleAudioEnded = useCallback(
+    (recId: string) => {
+      if (mode !== 'mock') return;
+      setPlays((p) => ({ ...p, [recId]: (p[recId] ?? 0) + 1 }));
+    },
+    [mode]
+  );
 
   const doSubmit = useCallback(() => {
     if (submittedRef.current) return;
@@ -88,6 +201,29 @@ export default function ListeningPlayerPage() {
 
   const answeredCount = Object.keys(answers).length;
   const total = questions.length;
+
+  /** Clear the in-progress attempt (answers, checks, plays) for a retry or
+   * a mode change — the result already saved (if any) is untouched. */
+  const resetAttemptState = useCallback(() => {
+    setAnswers({});
+    setChecked({});
+    setPlays({});
+    setSubmitted(false);
+    submittedRef.current = false;
+    setSaveState('idle');
+    if (test) setTimeLeft(test.durationMin * 60);
+    startRef.current = Date.now();
+  }, [test]);
+
+  /** Back to the mode picker. Asks first when answers would be discarded. */
+  const changeMode = useCallback(() => {
+    if (!submitted && answeredCount > 0) {
+      const ok = window.confirm('Đổi chế độ sẽ xóa bài làm hiện tại. Tiếp tục?');
+      if (!ok) return;
+    }
+    resetAttemptState();
+    setMode('pick');
+  }, [submitted, answeredCount, resetAttemptState]);
 
   const handleSubmit = () => {
     const missing = total - answeredCount;
@@ -150,8 +286,8 @@ export default function ListeningPlayerPage() {
     document.getElementById(`q-${num}`)?.scrollIntoView({ behavior: 'smooth', block: 'center' });
   };
 
-  const paletteButtons = (className: string, style?: React.CSSProperties) => (
-    <div className={className} style={style}>
+  const paletteButtons = (className: string, style?: React.CSSProperties, id?: string) => (
+    <div className={className} style={style} id={id}>
       {questions.map((q) => {
         const done = answers[q.num] != null;
         return (
@@ -160,6 +296,7 @@ export default function ListeningPlayerPage() {
             className={`palette-btn${done ? ' done' : ''}`}
             onClick={() => scrollToQ(q.num)}
             title={`Câu ${q.num}${done ? ' (đã trả lời)' : ''}`}
+            aria-label={`Câu ${q.num}${done ? ' (đã trả lời)' : ''}`}
           >
             {q.num}
           </button>
@@ -193,6 +330,9 @@ export default function ListeningPlayerPage() {
             <ArrowLeftIcon width={16} height={16} />
             Danh sách đề
           </Link>
+          <button type="button" className="back" onClick={changeMode} style={{ background: 'none', border: 'none', cursor: 'pointer', font: 'inherit' }}>
+            Đổi chế độ
+          </button>
         </div>
         <div className="card" style={{ textAlign: 'center' }}>
           <span className="icon-badge" style={{ margin: '0 auto 10px' }}>
@@ -203,7 +343,7 @@ export default function ListeningPlayerPage() {
             {score}
             <span style={{ color: 'var(--muted)', fontSize: '1.4rem' }}>/{total}</span>
           </p>
-          <p style={{ margin: '6px 0 0', color: 'var(--muted)' }}>{pct}% câu đúng</p>
+          <p style={{ margin: '6px 0 0', color: 'var(--muted)' }}><span>{pct}%</span> câu đúng</p>
           <div style={{ maxWidth: 340, margin: '18px auto 0', textAlign: 'left' }}>
             {parts.map((p) => (
               <div key={p.part} style={{ marginBottom: 10 }}>
@@ -246,6 +386,10 @@ export default function ListeningPlayerPage() {
             )}
           </p>
           <div className="btn-row" style={{ justifyContent: 'center', marginTop: 16 }}>
+            <button type="button" className="btn" onClick={resetAttemptState}>
+              <ArrowPathIcon width={16} height={16} />
+              Làm lại đề này
+            </button>
             <Link href="/listening" className="btn" style={{ textDecoration: 'none' }}>
               Đề khác
             </Link>
@@ -268,7 +412,7 @@ export default function ListeningPlayerPage() {
                   <SpeakerWaveIcon width={17} height={17} style={{ color: 'var(--muted)' }} />
                   {rec.label}
                 </p>
-                <audio controls src={rec.audio} style={{ width: '100%' }} preload="none" />
+                <ListeningAudio src={rec.audio} />
                 {rec.questions.map((q, qi) => {
                   const num = numOf.get(`${rec.id}:${qi}`) ?? 0;
                   const chosen = answers[num];
@@ -316,7 +460,7 @@ export default function ListeningPlayerPage() {
                     Transcript
                   </summary>
                   <p className="reference" style={{ fontSize: '0.95rem', marginTop: 8 }}>
-                    {rec.script}
+                    {stripSource(rec.script)}
                   </p>
                 </details>
               </div>
@@ -373,9 +517,9 @@ export default function ListeningPlayerPage() {
   return (
     <main className="page">
       <div
+        className="sticky-player-bar"
         style={{
           position: 'sticky',
-          top: 57,
           zIndex: 20,
           background: 'var(--bg)',
           padding: '10px 0',
@@ -388,6 +532,9 @@ export default function ListeningPlayerPage() {
             <ArrowLeftIcon width={16} height={16} />
             Danh sách đề
           </Link>
+          <button type="button" className="back" onClick={changeMode} style={{ background: 'none', border: 'none', cursor: 'pointer', font: 'inherit' }}>
+            Đổi chế độ
+          </button>
           {mode === 'mock' && (
             <span className={`timer-pill${timeLeft < 60 ? ' danger' : ''}`}>
               <ClockIcon width={17} height={17} />
@@ -402,11 +549,27 @@ export default function ListeningPlayerPage() {
           <strong style={{ fontSize: '1.1rem', fontWeight: 800 }}>{test.title}</strong>
           <button className="btn primary" onClick={handleSubmit}>
             <CheckIcon width={16} height={16} />
-            {mode === 'mock' ? `Nộp bài (${answeredCount}/${total})` : `Hoàn thành (${answeredCount}/${total})`}
+            {mode === 'mock' ? <>Nộp bài (<span>{answeredCount}/{total}</span>)</> : <>Hoàn thành (<span>{answeredCount}/{total}</span>)</>}
           </button>
         </div>
-        {/* Question palette — in the top bar on mobile, sidebar on desktop */}
-        {paletteButtons('palette palette-inbar', { marginTop: 10 })}
+        {/* Question palette — collapsed behind a toggle in the top bar on
+         * mobile (35 buttons would eat a third of the screen); the sidebar
+         * palette on desktop stays fully visible. The wrapper reuses
+         * .palette-inbar so the toggle only appears where that palette does
+         * (mobile), without touching the shared stylesheet. */}
+        <div className="palette-inbar" style={{ flexDirection: 'column', alignItems: 'flex-start' }}>
+          <button
+            type="button"
+            className="btn"
+            aria-expanded={paletteOpen}
+            aria-controls="listen-palette-inbar"
+            onClick={() => setPaletteOpen((o) => !o)}
+            style={{ marginTop: 10 }}
+          >
+            {paletteOpen ? 'Thu gọn bảng câu hỏi' : <>Hiện bảng câu hỏi (<span>{answeredCount}/{total}</span>)</>}
+          </button>
+          {paletteOpen && paletteButtons('palette palette-inbar', { marginTop: 10 }, 'listen-palette-inbar')}
+        </div>
       </div>
 
       <div className="listen-layout">
@@ -428,13 +591,18 @@ export default function ListeningPlayerPage() {
                 <SpeakerWaveIcon width={17} height={17} style={{ color: 'var(--muted)' }} />
                 {rec.label}
               </p>
-              <audio controls src={rec.audio} style={{ width: '100%' }} preload="none" />
+              <ListeningAudio
+                src={rec.audio}
+                exhausted={mode === 'mock' && (plays[rec.id] ?? 0) >= 1}
+                onEnded={() => handleAudioEnded(rec.id)}
+                blockSeekBack={mode === 'mock'}
+              />
               {rec.questions.map((q, qi) => {
                 const num = numOf.get(`${rec.id}:${qi}`) ?? 0;
                 const chosen = answers[num];
                 const correct = chosen === q.answer;
                 return (
-                  <div key={num} id={`q-${num}`} style={{ marginTop: 14, scrollMarginTop: 210 }}>
+                  <div key={num} id={`q-${num}`} style={{ marginTop: 14, scrollMarginTop: 320 }}>
                     <p style={{ margin: '0 0 8px', fontWeight: 600, fontSize: '0.95rem', display: 'flex', alignItems: 'flex-start', gap: 7 }}>
                       <span style={{ color: 'var(--accent-strong)', flexShrink: 0 }}>{num}.</span>
                       <span style={{ flex: 1 }}>{q.q}</span>
@@ -495,13 +663,33 @@ export default function ListeningPlayerPage() {
                   Kiểm tra bài này
                 </button>
               )}
+              {mode === 'practice' && recChecked && (
+                <button
+                  className="btn"
+                  style={{ marginTop: 14 }}
+                  onClick={() => {
+                    setChecked((c) => ({ ...c, [rec.id]: false }));
+                    setAnswers((a) => {
+                      const next = { ...a };
+                      rec.questions.forEach((_, qi) => {
+                        const num = numOf.get(`${rec.id}:${qi}`);
+                        if (num != null) delete next[num];
+                      });
+                      return next;
+                    });
+                  }}
+                >
+                  <ArrowPathIcon width={16} height={16} />
+                  Làm lại bài này
+                </button>
+              )}
               {mode === 'practice' && (
                 <details style={{ marginTop: 10 }} open={recChecked || undefined}>
                   <summary style={{ cursor: 'pointer', fontSize: '0.88rem', fontWeight: 600 }}>
                     Transcript
                   </summary>
                   <p className="reference" style={{ fontSize: '0.95rem', marginTop: 8 }}>
-                    {rec.script}
+                    {stripSource(rec.script)}
                   </p>
                 </details>
               )}
@@ -513,7 +701,7 @@ export default function ListeningPlayerPage() {
 
       <div className="card" style={{ textAlign: 'center', marginTop: 8 }}>
         <p style={{ color: 'var(--muted)', fontSize: '0.9rem', margin: '0 0 12px' }}>
-          Đã trả lời {answeredCount}/{total} câu
+          Đã trả lời <span>{answeredCount}/{total}</span> câu
         </p>
         <button className="btn primary" onClick={handleSubmit} style={{ fontSize: '1rem', padding: '12px 28px' }}>
           <CheckIcon width={18} height={18} />
@@ -525,7 +713,7 @@ export default function ListeningPlayerPage() {
           <div className="card">
             <div className="listen-side-head">
               <strong>Câu hỏi</strong>
-              <span>{answeredCount}/{total} đã trả lời</span>
+              <span><span>{answeredCount}/{total}</span> đã trả lời</span>
             </div>
             {paletteButtons('palette palette-vertical')}
             <button className="btn primary" onClick={handleSubmit} style={{ width: '100%', marginTop: 14 }}>

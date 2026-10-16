@@ -14,19 +14,15 @@ import {
   MicrophoneIcon,
   SpeakerWaveIcon,
   BookOpenIcon,
+  LanguageIcon,
   ChartBarIcon,
   Cog6ToothIcon,
   ArrowRightOnRectangleIcon,
 } from '@heroicons/react/24/outline';
 
-const NAV = [
-  { href: '/writing', label: 'Luyện Viết', Icon: PencilSquareIcon },
-  { href: '/speaking', label: 'Luyện Nói', Icon: MicrophoneIcon },
-  { href: '/listening', label: 'Luyện Nghe', Icon: SpeakerWaveIcon },
-  { href: '/reading', label: 'Luyện Đọc', Icon: BookOpenIcon },
-  { href: '/progress', label: 'Tiến độ', Icon: ChartBarIcon },
-  { href: '/settings', label: 'Cài đặt AI', Icon: Cog6ToothIcon },
-];
+// NOTE: there is intentionally no top nav bar. Inner pages use the floating
+// NavDock on desktop and the bottom tab bar on mobile; the homepage links
+// to everything via its skill menu, utility cards, and footer.
 
 // Bottom tab bar for touch screens: the 4 skills + progress as large tap
 // targets. Rendered always; CSS shows it only on narrow viewports.
@@ -35,6 +31,7 @@ const MOBILE_NAV = [
   { href: '/speaking', label: 'Nói', Icon: MicrophoneIcon },
   { href: '/listening', label: 'Nghe', Icon: SpeakerWaveIcon },
   { href: '/reading', label: 'Đọc', Icon: BookOpenIcon },
+  { href: '/tu-vung', label: 'Từ vựng', Icon: LanguageIcon },
   { href: '/progress', label: 'Tiến độ', Icon: ChartBarIcon },
 ];
 
@@ -70,26 +67,12 @@ export default function SiteHeader() {
   const isHome = pathname === '/';
   const useDock = !isHome;
 
-  const headerBody = (withNav: boolean) => (
+  const headerBody = (
     <div className="site-header-inner">
       <Link href="/" className="logo" aria-label="Luyện VSTEP — trang chủ">
         <span className="logo-mark" aria-hidden="true" />
         <span className="logo-text">Luyện VSTEP</span>
       </Link>
-
-      {withNav && (
-        <nav className="site-nav" aria-label="Điều hướng chính">
-          {NAV.map(({ href, label, Icon }) => {
-            const active = pathname === href || pathname.startsWith(href + '/');
-            return (
-              <Link key={href} href={href} className={active ? 'active' : ''} title={label}>
-                <Icon width={16} height={16} strokeWidth={active ? 2.2 : 1.8} />
-                <span className="nav-label">{label}</span>
-              </Link>
-            );
-          })}
-        </nav>
-      )}
 
       <div className="header-user">
         <AnimatedThemeToggler />
@@ -137,7 +120,7 @@ export default function SiteHeader() {
     <>
       {useDock && <NavDock />}
       <header className={`site-header${useDock ? ' inner-header' : ''}`}>
-        {headerBody(!isHome)}
+        {headerBody}
       </header>
 
       {/* bottom tab bar — touch-friendly skill switching on narrow screens.

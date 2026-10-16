@@ -1,6 +1,6 @@
 /* CircuitBoard — Cult UI circuit-board adapted.
    Animated SVG circuit traces with traveling pulses converging on a central
-   chip, wired to the 3 utility cards below. Theme-aware via CSS variables;
+   chip, wired to the 4 utility cards below. Theme-aware via CSS variables;
    dark mode follows html[data-theme='dark'] automatically. */
 
 @keyframes pulse-glow {
@@ -136,7 +136,12 @@
 }
 @media (min-width: 768px) {
   .cb-cards {
-    grid-template-columns: repeat(3, 1fr);
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+@media (min-width: 1020px) {
+  .cb-cards {
+    grid-template-columns: repeat(4, 1fr);
   }
 }
 
@@ -217,4 +222,15 @@
   font-size: 0.88rem;
   line-height: 1.65;
   color: var(--muted);
+}
+
+/* prefers-reduced-motion: the card glow/accent pulse is decorative — show
+   the glow statically at its resting opacity instead of pulsing. The SVG
+   SMIL pulses are paused from CircuitBoard.tsx (pauseAnimations). */
+@media (prefers-reduced-motion: reduce) {
+  .cb-glow,
+  .cb-accent {
+    animation: none !important;
+    opacity: 0;
+  }
 }

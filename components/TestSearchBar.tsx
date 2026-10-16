@@ -134,6 +134,7 @@ export function TestSearchBar({
           onBlur={() => setOpen(false)}
           onKeyDown={onInputKey}
           placeholder={placeholder}
+          aria-label={placeholder}
           role="combobox"
           aria-expanded={showList}
           aria-controls={listId}

@@ -17,6 +17,9 @@ import {
   ShieldCheckIcon,
   ArrowTopRightOnSquareIcon,
   ArrowPathIcon,
+  MoonIcon,
+  SunIcon,
+  ChartBarIcon,
 } from '@heroicons/react/24/outline';
 import {
   clearAiSettings,
@@ -24,6 +27,8 @@ import {
   saveAiSettings,
   type AiProvider,
 } from '@/lib/aiKey';
+import { useIsDark } from '@/components/useIsDark';
+import { flipThemeAnimated } from '@/components/ui/animated-theme-toggler';
 
 type TestState = 'idle' | 'testing' | 'ok' | 'bad';
 
@@ -73,6 +78,12 @@ export default function SettingsPage() {
   const [testState, setTestState] = useState<TestState>('idle');
   const [testMsg, setTestMsg] = useState('');
   const [toast, setToast] = useState('');
+  const [saving, setSaving] = useState(false);
+  // Gate the first paint on the localStorage read so a user with a saved
+  // key never flashes the setup form before the saved state appears.
+  const [loaded, setLoaded] = useState(false);
+  const isDark = useIsDark();
+  const [targetLevel, setTargetLevel] = useState<'B1' | 'B2' | 'C1'>('B2');
 
   // Load from localStorage after mount (avoids SSR hydration mismatch).
   useEffect(() => {
@@ -82,7 +93,23 @@ export default function SettingsPage() {
     setSavedKey(s.apiKey);
     setHasKey(!!s.apiKey);
     setEditing(!s.apiKey);
+    try {
+      const raw = window.localStorage.getItem('vstep_target_level');
+      if (raw === 'B1' || raw === 'B2' || raw === 'C1') setTargetLevel(raw);
+    } catch {
+      /* ignore */
+    }
+    setLoaded(true);
   }, []);
+
+  function pickLevel(l: 'B1' | 'B2' | 'C1') {
+    setTargetLevel(l);
+    try {
+      window.localStorage.setItem('vstep_target_level', l);
+    } catch {
+      /* ignore */
+    }
+  }
 
   const meta = PROVIDERS.find((p) => p.id === (hasKey ? savedProvider : provider))!;
 
@@ -95,6 +122,12 @@ export default function SettingsPage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ provider: p, apiKey: k }),
       });
+      if (res.status === 401) {
+        // test-key requires login — the key itself wasn't judged.
+        setTestState('bad');
+        setTestMsg('Đăng nhập để kiểm tra key.');
+        return false;
+      }
       const data = await res.json().catch(() => null);
       if (data?.valid) {
         setTestState('ok');
@@ -111,12 +144,7 @@ export default function SettingsPage() {
     }
   }
 
-  function handleSave() {
-    const k = key.trim();
-    if (!k) {
-      setToast('Nhập API key trước khi lưu nhé.');
-      return;
-    }
+  function doSaveKey(k: string) {
     saveAiSettings(provider, k);
     setHasKey(true);
     setSavedKey(k);
@@ -124,9 +152,52 @@ export default function SettingsPage() {
     setEditing(false);
     setKey('');
     setShow(false);
-    setTestState('idle');
-    setTestMsg('');
     setToast('Đã lưu key. Key chỉ nằm trong trình duyệt này.');
+  }
+
+  /** Validate-on-save: the key is only saved after it passes the check.
+   * When not logged in (test-key returns 401), the check is advisory —
+   * save with a warning instead of blocking. */
+  async function handleSave() {
+    const k = key.trim();
+    if (!k) {
+      setToast('Nhập API key trước khi lưu nhé.');
+      return;
+    }
+    setSaving(true);
+    try {
+      const res = await fetch('/api/ai/test-key', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ provider, apiKey: k }),
+      });
+      if (res.status === 401) {
+        setTestState('bad');
+        setTestMsg('Đăng nhập để kiểm tra key.');
+        doSaveKey(k);
+        // After doSaveKey's own toast — this warning must win.
+        setToast(
+          'Chưa kiểm tra được key (cần đăng nhập) — vẫn lưu key, nhưng bạn nên bấm "Kiểm tra lại" sau khi đăng nhập.'
+        );
+        return;
+      }
+      const data = await res.json().catch(() => null);
+      if (data?.valid) {
+        setTestState('ok');
+        setTestMsg('Key hợp lệ — dùng được ngay.');
+        doSaveKey(k);
+      } else {
+        setTestState('bad');
+        setTestMsg(data?.error || 'Key không dùng được.');
+        setToast('Key không hợp lệ — chưa lưu. Kiểm tra lại key rồi thử lại.');
+      }
+    } catch {
+      setTestState('bad');
+      setTestMsg('Không kết nối được. Thử lại sau.');
+      setToast('Không kiểm tra được key — chưa lưu.');
+    } finally {
+      setSaving(false);
+    }
   }
 
   function handleClear() {
@@ -156,6 +227,11 @@ export default function SettingsPage() {
         Mỗi người dùng key riêng.
       </p>
 
+      {!loaded ? (
+        <div className="card" style={{ marginTop: 20 }} aria-busy="true">
+          <p style={{ fontSize: '0.88rem', color: 'var(--muted)', margin: 0 }}>Đang tải…</p>
+        </div>
+      ) : (
       <div className="card" style={{ marginTop: 20 }}>
         {hasKey && !editing ? (
           /* ---------- Saved state ---------- */
@@ -173,7 +249,7 @@ export default function SettingsPage() {
                 alt={`${meta.name} logo`}
                 width={32}
                 height={32}
-                style={{ borderRadius: 8, background: '#fff', padding: 4 }}
+                style={{ borderRadius: 8, background: 'var(--paper)', padding: 4 }}
               />
               <div style={{ flex: 1, minWidth: 140 }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
@@ -234,13 +310,13 @@ export default function SettingsPage() {
           <>
             <div className="field">
               <label>Nhà cung cấp AI</label>
-              <div className="seg-tabs" style={{ marginTop: 6 }} role="tablist" aria-label="Nhà cung cấp AI">
+              <div className="seg-tabs" style={{ marginTop: 6 }} role="radiogroup" aria-label="Nhà cung cấp AI">
                 {PROVIDERS.map((p) => (
                   <button
                     key={p.id}
                     type="button"
-                    role="tab"
-                    aria-selected={provider === p.id}
+                    role="radio"
+                    aria-checked={provider === p.id}
                     onClick={() => { setProvider(p.id); setTestState('idle'); setTestMsg(''); }}
                     style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}
                   >
@@ -249,7 +325,7 @@ export default function SettingsPage() {
                       alt={`${p.name} logo`}
                       width={18}
                       height={18}
-                      style={{ borderRadius: 4, background: '#fff', padding: 2 }}
+                      style={{ borderRadius: 4, background: 'var(--paper)', padding: 2 }}
                     />
                     {p.name}
                   </button>
@@ -285,7 +361,6 @@ export default function SettingsPage() {
                 <button
                   type="button"
                   className="icon-btn"
-                  style={{ width: 46, height: 46 }}
                   onClick={() => setShow((s) => !s)}
                   aria-label={show ? 'Ẩn key' : 'Hiện key'}
                   title={show ? 'Ẩn key' : 'Hiện key'}
@@ -313,9 +388,9 @@ export default function SettingsPage() {
             )}
 
             <div className="btn-row" style={{ marginTop: 16 }}>
-              <button className="btn primary" onClick={handleSave}>
+              <button className="btn primary" onClick={handleSave} disabled={saving || testState === 'testing'}>
                 <CheckIcon width={16} height={16} />
-                Lưu key
+                {saving ? 'Đang kiểm tra…' : 'Lưu key'}
               </button>
               <button
                 className="btn"
@@ -334,17 +409,62 @@ export default function SettingsPage() {
         )}
 
         {toast && (
-          <p style={{ fontSize: '0.88rem', color: 'var(--muted)', marginTop: 12 }}>{toast}</p>
+          <p role="status" style={{ fontSize: '0.88rem', color: 'var(--muted)', marginTop: 12 }}>{toast}</p>
         )}
+      </div>
+      )}
+
+      <div className="card" style={{ marginTop: 16 }}>
+        <h2 className="section-title" style={{ marginTop: 0, display: 'flex', alignItems: 'center', gap: 8 }}>
+          {isDark ? <SunIcon width={19} height={19} /> : <MoonIcon width={19} height={19} />}
+          Giao diện
+        </h2>
+        <p style={{ fontSize: '0.88rem', color: 'var(--muted)', margin: '0 0 12px' }}>
+          Chế độ sáng / tối — áp dụng cho toàn bộ trang, ghi nhớ trong trình duyệt này.
+        </p>
+        <button
+          className="btn"
+          onClick={(e) => {
+            const r = e.currentTarget.getBoundingClientRect();
+            flipThemeAnimated(r.left + r.width / 2, r.top + r.height / 2);
+          }}
+        >
+          {isDark ? <SunIcon width={16} height={16} /> : <MoonIcon width={16} height={16} />}
+          {isDark ? 'Chuyển sang giao diện sáng' : 'Chuyển sang giao diện tối'}
+        </button>
+
+        <h2 className="section-title" style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 22 }}>
+          <ChartBarIcon width={19} height={19} />
+          Mục tiêu trình độ
+        </h2>
+        <p style={{ fontSize: '0.88rem', color: 'var(--muted)', margin: '0 0 12px' }}>
+          Ngưỡng điểm hiển thị trên Tiến độ và Hồ sơ năng lực — B1: 4.0, B2: 6.0, C1: 8.0.
+        </p>
+        <div className="btn-row" role="group" aria-label="Chọn trình độ mục tiêu">
+          {(['B1', 'B2', 'C1'] as const).map((l) => (
+            <button
+              key={l}
+              className={`btn${targetLevel === l ? ' primary' : ''}`}
+              style={{ padding: '8px 22px' }}
+              onClick={() => pickLevel(l)}
+              aria-pressed={targetLevel === l}
+            >
+              {l}
+            </button>
+          ))}
+        </div>
       </div>
 
       <div className="card-soft" style={{ marginTop: 16 }}>
         <p style={{ fontSize: '0.88rem', margin: 0, lineHeight: 1.7, display: 'flex', gap: 10, alignItems: 'flex-start' }}>
           <ShieldCheckIcon width={20} height={20} style={{ flexShrink: 0, color: 'var(--muted)', marginTop: 2 }} />
           <span>
-            Key của bạn <strong>chỉ được lưu trong trình duyệt này</strong> và chỉ được
-            gửi thẳng tới {hasKey ? (savedProvider === 'gemini' ? 'Google' : 'OpenAI') : 'nhà cung cấp'} khi chấm bài —
-            server không lưu hay ghi log key của bạn. Đổi trình duyệt thì cần nhập lại key.
+            Key của bạn <strong>chỉ được lưu trong trình duyệt này</strong>. Khi chấm bài,
+            key được gửi kèm tới máy chủ để chuyển tiếp tới{' '}
+            {hasKey ? (savedProvider === 'gemini' ? 'Google' : 'OpenAI') : 'nhà cung cấp'} trong
+            lúc chấm — máy chủ dùng xong là bỏ, không lưu hay ghi log key của bạn. Đổi trình
+            duyệt thì cần nhập lại key. Chưa nhập key vẫn chấm được nhờ key OpenAI dự phòng
+            của máy chủ (nếu đã cấu hình).
           </span>
         </p>
       </div>

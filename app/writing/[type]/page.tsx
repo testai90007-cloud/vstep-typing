@@ -136,15 +136,25 @@ export default function PracticePage() {
   }
   const [toast, setToast] = useState('');
   const [dbNote, setDbNote] = useState(false);
+  const [saveFailed, setSaveFailed] = useState(false);
+  // reference panel collapsible (mobile: lets the textarea own the viewport)
+  const [refOpen, setRefOpen] = useState(true);
   const [finalStats, setFinalStats] = useState({ accuracy: 0, durationSec: 0, words: 0 });
   // error-word drill
   const [drillList, setDrillList] = useState<string[]>([]);
   const [drillIdx, setDrillIdx] = useState(0);
   const [drillInput, setDrillInput] = useState('');
   const [drillDone, setDrillDone] = useState(false);
+  // draft autosave (localStorage): survives refresh / accidental navigation.
+  const DRAFT_KEY = `vstep_draft_writing_typing_${typeId}`;
+  const [draftInfo, setDraftInfo] = useState<{ savedAt: number } | null>(null);
+  const [draftChecked, setDraftChecked] = useState(false);
+  const draftTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const timerRef = useRef<{ start: number; total: number } | null>(null);
   const startStamp = useRef<number | null>(null);
+  /** Seconds elapsed before the current timer segment (accumulates across duration changes). */
+  const elapsedRef = useRef(0);
   const finishedRef = useRef(false);
   const errorWordsRef = useRef<string[]>([]);
   const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -163,16 +173,120 @@ export default function PracticePage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [typeId]);
 
+  // --- draft autosave --------------------------------------------------------
+  // On mount: check for an unfinished draft (only its metadata — restore is
+  // the user's choice via the banner, never automatic).
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem(DRAFT_KEY);
+      if (raw) {
+        const d = JSON.parse(raw) as { wholeTyped?: string; sectionTexts?: string[]; savedAt?: number };
+        const hasContent = (d.wholeTyped || '').trim() !== '' || (d.sectionTexts || []).some((t) => (t || '').trim() !== '');
+        if (hasContent) setDraftInfo({ savedAt: d.savedAt || 0 });
+      }
+    } catch {
+      /* corrupted draft — ignore */
+    }
+    setDraftChecked(true);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [typeId]);
+
+  // Autosave (debounced) whenever the typed content changes. Never overwrites
+  // a good draft with empty content (e.g. right after a scope switch).
+  useEffect(() => {
+    if (!draftChecked || finished) return;
+    if (draftTimer.current) clearTimeout(draftTimer.current);
+    draftTimer.current = setTimeout(() => {
+      try {
+        const hasContent = wholeTyped.trim() !== '' || sectionTexts.some((t) => t.trim() !== '');
+        if (!hasContent) return;
+        localStorage.setItem(DRAFT_KEY, JSON.stringify({
+          wholeTyped, sectionTexts, scope, sectionIdx, savedAt: Date.now(),
+        }));
+      } catch {
+        /* private mode / quota — practice still works */
+      }
+    }, 800);
+    return () => {
+      if (draftTimer.current) clearTimeout(draftTimer.current);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [wholeTyped, sectionTexts, scope, sectionIdx, finished, draftChecked]);
+
+  function restoreDraft() {
+    try {
+      const raw = localStorage.getItem(DRAFT_KEY);
+      if (!raw) return;
+      const d = JSON.parse(raw) as {
+        wholeTyped?: string; sectionTexts?: string[]; scope?: Scope; sectionIdx?: number;
+      };
+      setWholeTyped(d.wholeTyped || '');
+      setSectionTexts(d.sectionTexts || new Array(template?.sections.length || 0).fill(''));
+      if (d.scope === 'whole' || d.scope === 'sections') setScope(d.scope);
+      setSectionIdx(d.sectionIdx || 0);
+      setDraftInfo(null);
+      showToast('Đã khôi phục bản nháp.');
+    } catch {
+      /* corrupted draft — ignore */
+    }
+  }
+
+  function discardDraft() {
+    try {
+      localStorage.removeItem(DRAFT_KEY);
+    } catch {
+      /* ignore */
+    }
+    setDraftInfo(null);
+  }
+
+  function clearDraft() {
+    try {
+      localStorage.removeItem(DRAFT_KEY);
+    } catch {
+      /* ignore */
+    }
+    setDraftInfo(null);
+  }
+
+  // --- beforeunload guard while there is unsaved typed content ---------------
+  useEffect(() => {
+    if (finished) return;
+    const hasContent = wholeTyped.trim() !== '' || sectionTexts.some((t) => t.trim() !== '');
+    if (!hasContent) return;
+    const handler = (e: BeforeUnloadEvent) => {
+      e.preventDefault();
+      e.returnValue = '';
+    };
+    window.addEventListener('beforeunload', handler);
+    return () => window.removeEventListener('beforeunload', handler);
+  }, [finished, wholeTyped, sectionTexts]);
+
   function showToast(msg: string) {
     setToast(msg);
     if (toastTimer.current) clearTimeout(toastTimer.current);
     toastTimer.current = setTimeout(() => setToast(''), 2200);
   }
 
+  const hasTypedContent = wholeTyped.trim() !== '' || sectionTexts.some((t) => t.trim() !== '');
+  /**
+   * In-app navigation guard: `beforeunload` doesn't fire on Next.js
+   * client-side navigation, so the template select / back link confirm
+   * explicitly. The draft autosave already keeps the work — this only
+   * stops the user being surprised by the visible text vanishing.
+   */
+  function confirmLeave(): boolean {
+    if (!finished && hasTypedContent) {
+      return window.confirm('Bạn đang gõ dở — bản nháp đã tự lưu. Rời trang chứ?');
+    }
+    return true;
+  }
+
   // --- timer -----------------------------------------------------------------
   function resetTimer(totalMin: number) {
     timerRef.current = null;
     startStamp.current = null;
+    elapsedRef.current = 0;
     setTimerActive(false);
     setExpired(false);
     setTimeLeft(totalMin * 60);
@@ -251,6 +365,7 @@ export default function PracticePage() {
   }, [wholeTyped, sectionTexts, scope, template]);
 
   async function saveResult(accuracy: number, durationSec: number) {
+    setSaveFailed(false);
     try {
       const res = await fetch('/api/writing/save', {
         method: 'POST',
@@ -262,14 +377,23 @@ export default function PracticePage() {
           durationSec,
         }),
       });
-      const data = await res.json();
+      const data = await res.json().catch(() => null);
       if (res.status === 401) {
         showToast('Đăng nhập bằng Google để lưu tiến bộ nhé!');
         return;
       }
-      if (data && data.saved === false && data.reason === 'no-database') setDbNote(true);
+      if (data && data.saved === false && data.reason === 'no-database') {
+        setDbNote(true);
+        return;
+      }
+      if (!res.ok || (data && data.saved === false)) {
+        // Transient failure for a logged-in user — surface a retry
+        // instead of silently dropping the result.
+        setSaveFailed(true);
+      }
     } catch {
-      /* offline / db down — practice still works */
+      /* offline / db down — surface a retry instead of staying silent */
+      setSaveFailed(true);
     }
   }
 
@@ -293,6 +417,7 @@ export default function PracticePage() {
     setDrillDone(errorWordsRef.current.length === 0);
     setFinished(true);
     setCompleted(template.sections.map(() => true));
+    clearDraft();
     saveResult(a.accuracy, dur);
     showToast(exam ? 'Đã nộp bài thi thử!' : 'Hoàn thành — rất tốt!');
   }
@@ -306,7 +431,7 @@ export default function PracticePage() {
   }, [expired]);
 
   // --- actions -----------------------------------------------------------------
-  function fullReset(keepScope: Scope) {
+  function fullReset(keepScope: Scope, opts?: { startTimer?: boolean }) {
     if (!template) return;
     timerRef.current = null;
     startStamp.current = null;
@@ -324,6 +449,9 @@ export default function PracticePage() {
     setDrillDone(false);
     setDbNote(false);
     resetTimer(durationMin);
+    // Explicit opt-in only (the `exam` closure is stale inside toggleExam's
+    // setTimeout): callers that re-enter exam mode pass startTimer: true.
+    if (opts?.startTimer) ensureTimerStarted();
   }
 
   function retryCurrent() {
@@ -345,18 +473,37 @@ export default function PracticePage() {
 
   function changeScope(s: Scope) {
     if (s === scope) return;
-    fullReset(s);
+    // Switching scope must NOT reset the countdown (the timer keeps running
+    // across scopes per the file header promise). Only the typed content
+    // resets, because whole-essay and per-section inputs are separate views.
+    setScope(s);
+    setSectionIdx(0);
+    setWholeTyped('');
+    setSectionTexts(new Array(template?.sections.length || 0).fill(''));
+    setCompleted(new Array(template?.sections.length || 0).fill(false));
+    setErrorWords([]);
     showToast(s === 'whole' ? 'Đã chuyển sang gõ toàn bài' : 'Đã chuyển sang luyện từng phần');
   }
 
   function changeDuration(min: number) {
     setDurationMin(min);
-    // mirror the original page: resetting the clock to the new duration
-    timerRef.current = null;
-    startStamp.current = null;
-    setTimerActive(false);
-    setExpired(false);
-    setTimeLeft(min * 60);
+    // Changing the limit must NOT drop already-typed time: accumulate the
+    // elapsed time of the current segment, then re-base the countdown on
+    // (new limit − total elapsed). startStamp stays untouched so the
+    // recorded duration still covers the whole session.
+    if (timerRef.current) {
+      elapsedRef.current += (Date.now() - timerRef.current.start) / 1000;
+      const remaining = Math.max(0, min * 60 - elapsedRef.current);
+      timerRef.current = { start: Date.now(), total: remaining };
+      setTimeLeft(Math.floor(remaining));
+      if (remaining <= 0) {
+        timerRef.current = null;
+        setTimerActive(false);
+        setExpired(true);
+      }
+    } else {
+      setTimeLeft(min * 60);
+    }
     showToast(`Đã đặt ${min} phút cho toàn bài`);
   }
 
@@ -366,7 +513,9 @@ export default function PracticePage() {
       setMode('follow');
       setShowExample(false);
       setScope('whole');
-      setTimeout(() => fullReset('whole'), 0);
+      // The exam countdown starts the moment exam mode is entered — like a
+      // real exam — not on the first keystroke.
+      setTimeout(() => fullReset('whole', { startTimer: true }), 0);
       showToast('Chế độ thi thử: gõ toàn bài, không xem mẫu. Hết giờ sẽ tự nộp bài.');
     } else {
       setExam(false);
@@ -375,7 +524,8 @@ export default function PracticePage() {
   }
 
   function checkDrill() {
-    if (drillInput.trim() === drillList[drillIdx]) {
+    // Case-insensitive: typing "the" for a sentence-initial "The" is correct.
+    if (drillInput.trim().toLowerCase() === drillList[drillIdx].toLowerCase()) {
       const next = drillIdx + 1;
       setDrillInput('');
       if (next >= drillList.length) {
@@ -424,7 +574,7 @@ export default function PracticePage() {
   return (
     <main className="page">
       <div className="nav-top">
-        <Link href="/writing" className="back">
+        <Link href="/writing" className="back" onClick={(e) => { if (!confirmLeave()) e.preventDefault(); }}>
           <ArrowLeftIcon width={16} height={16} />
           Chọn bài khác
         </Link>
@@ -455,7 +605,7 @@ export default function PracticePage() {
             className="select"
             style={{ flex: '1 1 240px', width: 'auto' }}
             value={template.id}
-            onChange={(e) => router.push(`/writing/${e.target.value}`)}
+            onChange={(e) => { if (confirmLeave()) router.push(`/writing/${e.target.value}`); }}
           >
             <optgroup label="Writing Task 2">
               {TEMPLATES.filter((t) => t.group === 'task2').map((t) => (
@@ -536,12 +686,44 @@ export default function PracticePage() {
                 </span>
               </div>
 
+              {draftInfo && !wholeTyped.trim() && !sectionTexts.some((t) => t.trim()) && (
+                <div
+                  className="card-soft"
+                  style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap', marginBottom: 16 }}
+                >
+                  <span style={{ fontSize: '0.88rem', color: 'var(--muted)' }}>
+                    Có bản nháp chưa hoàn thành
+                    {draftInfo.savedAt > 0 && (
+                      <> (lưu lúc {new Date(draftInfo.savedAt).toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' })})</>
+                    )}
+                    .
+                  </span>
+                  <button className="btn sm primary" onClick={restoreDraft}>
+                    Khôi phục bản nháp
+                  </button>
+                  <button className="btn sm" onClick={discardDraft}>
+                    Xóa bản nháp
+                  </button>
+                </div>
+              )}
+
               <div className="type-cols">
                 <div>
                   <div className="work-col-head">
                     <span>Mẫu để gõ theo</span>
+                    <button
+                      type="button"
+                      className="btn sm"
+                      onClick={() => setRefOpen(!refOpen)}
+                      aria-expanded={refOpen}
+                      aria-controls="reference-panel"
+                      style={{ marginLeft: 'auto' }}
+                    >
+                      {refOpen ? 'Thu gọn' : 'Mở rộng'}
+                    </button>
                   </div>
-                  <div className="card-soft" style={{ minHeight: 300 }}>
+                  {refOpen && (
+                  <div className="card-soft" id="reference-panel" style={{ minHeight: 300 }}>
                 {examHidden ? (
                   <p className="reference" style={{ color: 'var(--muted)', fontSize: '1rem' }}>
                     Chế độ thi thử — mẫu được ẩn. Hãy gõ toàn bài từ trí nhớ trong thời gian đếm ngược.
@@ -579,6 +761,7 @@ export default function PracticePage() {
                   </p>
                 )}
                   </div>
+                  )}
                 </div>
                 <div>
                   <div className="work-col-head">
@@ -588,6 +771,9 @@ export default function PracticePage() {
                       {liveMessage}
                     </span>
                   </div>
+                  <p style={{ fontSize: '0.82rem', color: 'var(--muted)', margin: '0 0 8px' }}>
+                    Bấm vào khung &lsquo;Phần bạn gõ&rsquo; và bắt đầu gõ.
+                  </p>
                   <textarea
                     id="ta"
                     style={{ minHeight: 300 }}
@@ -608,10 +794,10 @@ export default function PracticePage() {
 
               <div className="metric-grid">
                 <div className="metric-meter">
-                  <Meter label="Độ chính xác" value={`${a.accuracy}%`} percent={a.accuracy} />
+                  <Meter label="Độ chính xác" value={typed.length ? <span>{a.accuracy}%</span> : '–'} percent={typed.length ? a.accuracy : 0} />
                 </div>
                 <div className="metric-meter">
-                  <Meter label="Tiến độ" value={`${a.progress}%`} percent={a.progress} />
+                  <Meter label="Tiến độ" value={<span>{a.progress}%</span>} percent={a.progress} />
                 </div>
                 <div className="metric-meter">
                   <Meter
@@ -682,6 +868,7 @@ export default function PracticePage() {
                 <p style={{ color: 'var(--muted)', fontSize: '0.85rem', marginTop: 12 }}>
                   Gõ chậm và đúng trước. Khi đạt 95% trở lên, hãy chuyển sang <strong>Tự nhớ</strong>.
                   Các phần in màu là chỗ cần thay nội dung theo đề bài.
+                  {scope === 'sections' && <> (Ctrl+Enter: đoạn tiếp theo)</>}
                 </p>
               </div>
             </>
@@ -703,21 +890,21 @@ export default function PracticePage() {
                 <div className="metric-meter">
                   <Meter
                     label="Độ chính xác"
-                    value={<><CountUp to={finalStats.accuracy} />%</>}
+                    value={<span><CountUp to={finalStats.accuracy} />%</span>}
                     percent={finalStats.accuracy}
                   />
                 </div>
                 <div className="metric-meter">
                   <Meter
                     label="Thời gian gõ"
-                    value={fmt(finalStats.durationSec)}
+                    value={<span>{fmt(finalStats.durationSec)}</span>}
                     percent={durationMin > 0 ? Math.min(100, (finalStats.durationSec / (durationMin * 60)) * 100) : 0}
                   />
                 </div>
                 <div className="metric-meter">
                   <Meter
                     label="Số từ đã gõ"
-                    value={<CountUp to={finalStats.words} />}
+                    value={<span><CountUp to={finalStats.words} /></span>}
                     percent={100}
                   />
                 </div>
@@ -725,6 +912,14 @@ export default function PracticePage() {
               {dbNote && (
                 <p style={{ color: 'var(--muted)', fontSize: '0.85rem' }}>
                   Chưa lưu được kết quả (thiếu DATABASE_URL) — bài luyện vẫn hoàn thành bình thường.
+                </p>
+              )}
+              {saveFailed && (
+                <p style={{ color: 'var(--muted)', fontSize: '0.85rem', display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+                  Lưu kết quả thất bại — kiểm tra mạng rồi thử lại.
+                  <button className="btn sm" onClick={() => saveResult(finalStats.accuracy, finalStats.durationSec)}>
+                    Thử lưu lại
+                  </button>
                 </p>
               )}
 
@@ -782,7 +977,7 @@ export default function PracticePage() {
               )}
 
               <div className="btn-row" style={{ marginTop: 24 }}>
-                <button className="btn primary" onClick={() => fullReset(scope)}>
+                <button className="btn primary" onClick={() => fullReset(scope, { startTimer: exam })}>
                   <ArrowPathIcon width={16} height={16} />
                   Luyện lại
                 </button>
@@ -794,7 +989,7 @@ export default function PracticePage() {
         </div>
       </div>
 
-      {toast && <div className="toast show">{toast}</div>}
+      {toast && <div className="toast show" role="status">{toast}</div>}
     </main>
   );
 }

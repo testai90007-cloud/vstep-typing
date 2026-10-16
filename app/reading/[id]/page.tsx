@@ -28,9 +28,6 @@ function fmtTime(sec: number): string {
   return `${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
 }
 
-/** Global question number (1-40) from part index + question index. */
-const qNum = (partIdx: number, qIdx: number) => partIdx * 10 + qIdx + 1;
-
 export default function ReadingPlayerPage() {
   const params = useParams();
   const test = useMemo(
@@ -48,10 +45,53 @@ export default function ReadingPlayerPage() {
   const submittedRef = useRef(false);
   const { data: session } = useSession();
   const [saveState, setSaveState] = useState<'idle' | 'saving' | 'saved' | 'skipped' | 'error'>('idle');
-  const startRef = useRef(Date.now());
+  // Set when the user picks a mode (practice/mock) — NOT on mount, so idle
+  // time on the mode-picker screen never inflates the recorded duration.
+  const startRef = useRef<number | null>(null);
+  /** Unfinished attempt found in storage — shown AFTER the user picks a
+   * mode, never before (no prompt blocking the mode picker). */
+  const [pendingDraft, setPendingDraft] = useState<{
+    answers: Record<number, number>;
+    mode?: string;
+    part?: number;
+  } | null>(null);
+  /** Whether the resume card was answered: 'restored' | 'dismissed' | null. */
+  const [resumeHandled, setResumeHandled] = useState<'restored' | 'dismissed' | null>(null);
+  /** One-shot notice after a draft restore (discloses the mock clock reset). */
+  const [restoreNotice, setRestoreNotice] = useState<string | null>(null);
+  /** Inline submit confirmation when questions are unanswered (no confirm()). */
+  const [submitConfirm, setSubmitConfirm] = useState(false);
+  /** Question palette in the sticky bar — collapsed by default on narrow screens. */
+  const [paletteOpen, setPaletteOpen] = useState(true);
 
-  const total = 40;
+  // Question counts derived from the data — no hardcoded 4×10 / 40.
+  const partOffsets = useMemo(() => {
+    const offs: number[] = [];
+    let acc = 0;
+    for (const p of test?.parts ?? []) {
+      offs.push(acc);
+      acc += p.questions.length;
+    }
+    return offs;
+  }, [test]);
+  const total = useMemo(
+    () => (test?.parts ?? []).reduce((a, p) => a + p.questions.length, 0),
+    [test]
+  );
+  /** Global question number (1-based) from part index + question index. */
+  const qNum = (partIdx: number, qIdx: number) => (partOffsets[partIdx] ?? 0) + qIdx + 1;
+  /** Part index that contains global question number `num` (1-based). */
+  const partOf = (num: number) => {
+    let idx = 0;
+    for (let i = 0; i < partOffsets.length; i++) {
+      if (partOffsets[i] <= num - 1) idx = i;
+      else break;
+    }
+    return idx;
+  };
   const answeredCount = Object.keys(answers).length;
+
+  const draftKey = test ? `vstep_reading_draft_${test.id}` : null;
 
   const doSubmit = useCallback(() => {
     if (submittedRef.current) return;
@@ -59,6 +99,117 @@ export default function ReadingPlayerPage() {
     setSubmitted(true);
     window.scrollTo({ top: 0 });
   }, []);
+
+  /** Pick a mode AND start the duration clock (mode-picker time excluded). */
+  const pickMode = (m: 'practice' | 'mock') => {
+    setMode(m);
+    startRef.current = Date.now();
+  };
+
+  // Autosave: persist answers + mode + part to localStorage while the
+  // attempt is live, so a refresh/close doesn't lose up to 60 min of work.
+  // Suppressed while the resume card is unanswered, and while a dismissed
+  // draft is still intact with no fresh answers yet — otherwise autosave
+  // would silently overwrite the kept draft with empty answers.
+  useEffect(() => {
+    if (!test || !draftKey || submitted || mode === 'pick') return;
+    if (pendingDraft && resumeHandled == null) return;
+    if (
+      pendingDraft &&
+      resumeHandled === 'dismissed' &&
+      Object.keys(answers).length === 0
+    )
+      return;
+    try {
+      window.localStorage.setItem(
+        draftKey,
+        JSON.stringify({ answers, mode, part, savedAt: Date.now() })
+      );
+    } catch {
+      /* storage full/blocked — the attempt continues in memory */
+    }
+  }, [test, draftKey, submitted, mode, answers, part, pendingDraft, resumeHandled]);
+
+  // Palette: collapsed by default on narrow screens (the full 40-button
+  // palette would otherwise eat ~1/3 of the viewport).
+  useEffect(() => {
+    const mq = window.matchMedia('(max-width: 760px)');
+    const apply = () => setPaletteOpen(!mq.matches);
+    apply();
+    mq.addEventListener('change', apply);
+    return () => mq.removeEventListener('change', apply);
+  }, []);
+
+  // On mount: load any unfinished attempt into state. The resume card is
+  // rendered only after the user picks a mode — never as a blocking prompt
+  // before the mode picker, and never deleting the draft on dismiss.
+  useEffect(() => {
+    setPendingDraft(null);
+    setResumeHandled(null);
+    setRestoreNotice(null);
+    setSubmitConfirm(false);
+    if (!test || !draftKey) return;
+    let raw: string | null = null;
+    try {
+      raw = window.localStorage.getItem(draftKey);
+    } catch {
+      /* ignore */
+    }
+    if (!raw) return;
+    let draft: { answers?: Record<number, number>; mode?: string; part?: number } | null = null;
+    try {
+      draft = JSON.parse(raw);
+    } catch {
+      /* corrupt draft — drop it */
+    }
+    if (!draft || !draft.answers || Object.keys(draft.answers).length === 0) {
+      try {
+        window.localStorage.removeItem(draftKey);
+      } catch {
+        /* ignore */
+      }
+      return;
+    }
+    setPendingDraft({ ...draft, answers: draft.answers ?? {} });
+    // Runs once per test id — draftKey covers it.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [draftKey]);
+
+  // A submitted attempt is done — its draft must never come back.
+  useEffect(() => {
+    if (submitted && draftKey) {
+      try {
+        window.localStorage.removeItem(draftKey);
+      } catch {
+        /* ignore */
+      }
+    }
+  }, [submitted, draftKey]);
+
+  /** Reset everything and go back to the mode picker (same test). */
+  const handleRetake = () => {
+    submittedRef.current = false;
+    setSubmitted(false);
+    setAnswers({});
+    setCheckedParts({});
+    setTimeLeft(TOTAL_MIN * 60);
+    setSaveState('idle');
+    setPart(0);
+    setPendingDraft(null);
+    setResumeHandled(null);
+    setRestoreNotice(null);
+    setSubmitConfirm(false);
+    startRef.current = null;
+    setMode('pick');
+    if (draftKey) {
+      try {
+        window.localStorage.removeItem(draftKey);
+      } catch {
+        /* ignore */
+      }
+    }
+    window.scrollTo({ top: 0 });
+  };
 
   useEffect(() => {
     if (!test || submitted || mode !== 'mock') return;
@@ -72,11 +223,62 @@ export default function ReadingPlayerPage() {
 
   const handleSubmit = () => {
     const missing = total - answeredCount;
-    if (missing > 0) {
-      const ok = window.confirm(`Bạn còn ${missing} câu chưa trả lời. Nộp bài ngay?`);
-      if (!ok) return;
+    if (missing > 0 && !submitConfirm) {
+      // Show the inline confirmation card instead of window.confirm().
+      setSubmitConfirm(true);
+      return;
     }
+    setSubmitConfirm(false);
     doSubmit();
+  };
+
+  /** Resume the kept draft: restore answers + part, keep the mode the user
+   * just picked. The mock clock is NOT restored — it restarts at 60:00, and
+   * the notice says so. */
+  const handleResumeDraft = () => {
+    if (!pendingDraft) return;
+    setAnswers(pendingDraft.answers);
+    if (typeof pendingDraft.part === 'number') setPart(pendingDraft.part);
+    setResumeHandled('restored');
+    setPendingDraft(null);
+    setRestoreNotice(
+      mode === 'mock'
+        ? 'Đã khôi phục bản nháp. Đồng hồ thi thử đã đặt lại 60:00.'
+        : 'Đã khôi phục bản nháp.'
+    );
+  };
+
+  /** Explicit restart: the ONLY path that deletes the draft. */
+  const handleRestartFresh = () => {
+    if (draftKey) {
+      try {
+        window.localStorage.removeItem(draftKey);
+      } catch {
+        /* ignore */
+      }
+    }
+    setPendingDraft(null);
+    setResumeHandled('dismissed');
+    setAnswers({});
+    setPart(0);
+  };
+
+  /** Dismiss the resume card — the draft stays in storage untouched. */
+  const handleDismissResume = () => {
+    setResumeHandled('dismissed');
+  };
+
+  /** Practice mode: redo a checked part — clear its answers and un-check it. */
+  const handleRetryPart = () => {
+    const partQuestions = test?.parts[part]?.questions ?? [];
+    setAnswers((a) => {
+      const next = { ...a };
+      partQuestions.forEach((_, qi) => {
+        delete next[qNum(part, qi)];
+      });
+      return next;
+    });
+    setCheckedParts((c) => ({ ...c, [part]: false }));
   };
 
   // Persist the result. The server response is checked honestly: only an
@@ -95,7 +297,9 @@ export default function ReadingPlayerPage() {
         if (answers[qNum(pi, qi)] === q.answer) score += 1;
       });
     });
-    const durationSec = Math.round((Date.now() - startRef.current) / 1000);
+    const durationSec = startRef.current
+      ? Math.round((Date.now() - startRef.current) / 1000)
+      : 0;
     try {
       const res = await fetch('/api/reading/save', {
         method: 'POST',
@@ -139,7 +343,7 @@ export default function ReadingPlayerPage() {
       {Array.from({ length: total }, (_, i) => i + 1).map((num) => {
         const done = answers[num] != null;
         // jump to the right part when clicking a question from another part
-        const targetPart = Math.floor((num - 1) / 10);
+        const targetPart = partOf(num);
         return (
           <button
             key={num}
@@ -206,7 +410,7 @@ export default function ReadingPlayerPage() {
             {score}
             <span style={{ color: 'var(--muted)', fontSize: '1.4rem' }}>/{total}</span>
           </p>
-          <p style={{ margin: '6px 0 0', color: 'var(--muted)' }}>{pct}% câu đúng</p>
+          <p style={{ margin: '6px 0 0', color: 'var(--muted)' }}><span>{pct}%</span> câu đúng</p>
           <div style={{ maxWidth: 340, margin: '18px auto 0', textAlign: 'left' }}>
             {perPart.map((p, i) => (
               <div key={i} style={{ marginBottom: 10 }}>
@@ -223,6 +427,9 @@ export default function ReadingPlayerPage() {
             ))}
           </div>
           <div className="btn-row" style={{ justifyContent: 'center', marginTop: 16 }}>
+            <button className="btn primary" onClick={handleRetake}>
+              Làm lại đề này
+            </button>
             <Link href="/reading" className="btn" style={{ textDecoration: 'none' }}>
               Đề khác
             </Link>
@@ -340,10 +547,16 @@ export default function ReadingPlayerPage() {
           {test.title} <span className="hl">· Reading</span>
         </h1>
         <p className="lead">
-          4 bài đọc · {total} câu hỏi · {TOTAL_MIN} phút như thi thật.
+          {test.parts.length} bài đọc · {total} câu hỏi · {TOTAL_MIN} phút như thi thật.
         </p>
+        {pendingDraft && (
+          <p style={{ color: 'var(--muted)', fontSize: '0.9rem', marginTop: 8 }}>
+            Có bài đang làm dở ({Object.keys(pendingDraft.answers).length} câu đã trả lời) —
+            chọn chế độ rồi quyết định tiếp tục hay bắt đầu lại.
+          </p>
+        )}
         <div className="mode-cards">
-          <button className="card lift mode-card" onClick={() => setMode('practice')}>
+          <button className="card lift mode-card" onClick={() => pickMode('practice')}>
             <span className="icon-badge">
               <BookOpenIcon width={24} height={24} strokeWidth={1.6} />
             </span>
@@ -354,14 +567,14 @@ export default function ReadingPlayerPage() {
               thời gian, đọc kỹ từng đoạn văn.
             </p>
           </button>
-          <button className="card lift mode-card" onClick={() => setMode('mock')}>
+          <button className="card lift mode-card" onClick={() => pickMode('mock')}>
             <span className="icon-badge">
               <FlagIcon width={24} height={24} strokeWidth={1.6} />
             </span>
             <strong>Thi thử</strong>
             <span className="chip accent">Đúng {TOTAL_MIN} phút như thi thật</span>
             <p>
-              Làm cả 4 bài một mạch, hết giờ tự động nộp — không xem đáp án trước khi
+              Làm cả {test.parts.length} bài một mạch, hết giờ tự động nộp — không xem đáp án trước khi
               nộp bài.
             </p>
           </button>
@@ -376,17 +589,7 @@ export default function ReadingPlayerPage() {
 
   return (
     <main className="page">
-      <div
-        style={{
-          position: 'sticky',
-          top: 57,
-          zIndex: 20,
-          background: 'var(--bg)',
-          padding: '10px 0',
-          borderBottom: '1px solid var(--line)',
-          marginBottom: 18,
-        }}
-      >
+      <div className="sticky-player-bar">
         <div className="nav-top" style={{ marginBottom: 8 }}>
           <Link href="/reading" className="back">
             <ArrowLeftIcon width={16} height={16} />
@@ -404,13 +607,101 @@ export default function ReadingPlayerPage() {
         </div>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 10 }}>
           <strong style={{ fontSize: '1.1rem', fontWeight: 800 }}>{test.title}</strong>
+          <button
+            className="btn"
+            onClick={() => setPaletteOpen((o) => !o)}
+            aria-expanded={paletteOpen}
+            aria-label={paletteOpen ? 'Ẩn bảng câu hỏi' : 'Hiện bảng câu hỏi'}
+          >
+            {paletteOpen ? 'Ẩn bảng câu hỏi' : 'Hiện bảng câu hỏi'}
+          </button>
           <button className="btn primary" onClick={handleSubmit}>
             <CheckIcon width={16} height={16} />
-            {mode === 'mock' ? `Nộp bài (${answeredCount}/${total})` : `Hoàn thành (${answeredCount}/${total})`}
+            {mode === 'mock' ? <>Nộp bài (<span>{answeredCount}/{total}</span>)</> : <>Hoàn thành (<span>{answeredCount}/{total}</span>)</>}
           </button>
         </div>
-        {paletteButtons('palette palette-inbar', { marginTop: 10 })}
+        {paletteOpen && (
+          <div id="reading-palette">{paletteButtons('palette palette-inbar', { marginTop: 10 })}</div>
+        )}
       </div>
+
+      {/* Resume card — shown only after a mode is picked, never before. */}
+      {pendingDraft && resumeHandled == null && (
+        <div className="card" role="dialog" aria-label="Khôi phục bản nháp" style={{ marginTop: 14 }}>
+          <p style={{ margin: '0 0 6px', fontWeight: 700 }}>
+            Có bài đang làm dở. Tiếp tục bài đang làm dở?
+          </p>
+          <p style={{ margin: '0 0 14px', color: 'var(--muted)', fontSize: '0.9rem' }}>
+            Bản nháp gồm {Object.keys(pendingDraft.answers).length} câu đã trả lời.
+          </p>
+          <div className="btn-row">
+            <button className="btn primary" onClick={handleResumeDraft}>
+              Tiếp tục bản nháp
+            </button>
+            <button className="btn" onClick={handleRestartFresh}>
+              Bắt đầu lại (xóa bản nháp)
+            </button>
+            <button className="btn" onClick={handleDismissResume}>
+              Để sau
+            </button>
+          </div>
+        </div>
+      )}
+      {restoreNotice && (
+        <p
+          role="status"
+          className="card-soft"
+          style={{
+            marginTop: 14,
+            display: 'flex',
+            justifyContent: 'space-between',
+            alignItems: 'center',
+            gap: 12,
+            fontSize: '0.9rem',
+          }}
+        >
+          <span>{restoreNotice}</span>
+          <button
+            type="button"
+            onClick={() => setRestoreNotice(null)}
+            style={{
+              background: 'none',
+              border: 'none',
+              padding: 0,
+              font: 'inherit',
+              fontWeight: 700,
+              color: 'inherit',
+              cursor: 'pointer',
+              textDecoration: 'underline',
+              flexShrink: 0,
+            }}
+          >
+            Đóng
+          </button>
+        </p>
+      )}
+      {submitConfirm && (
+        <div className="card" role="dialog" aria-label="Xác nhận nộp bài" style={{ marginTop: 14 }}>
+          <p style={{ margin: '0 0 14px' }}>
+            Bạn còn {total - answeredCount} câu chưa trả lời.{' '}
+            {mode === 'mock' ? 'Nộp bài' : 'Hoàn thành'} ngay?
+          </p>
+          <div className="btn-row">
+            <button
+              className="btn primary"
+              onClick={() => {
+                setSubmitConfirm(false);
+                doSubmit();
+              }}
+            >
+              {mode === 'mock' ? 'Nộp bài' : 'Hoàn thành'}
+            </button>
+            <button className="btn" onClick={() => setSubmitConfirm(false)}>
+              Tiếp tục làm
+            </button>
+          </div>
+        </div>
+      )}
 
       <div className="listen-layout">
         <div className="listen-main">
@@ -444,7 +735,7 @@ export default function ReadingPlayerPage() {
                 const chosen = answers[num];
                 const correct = chosen === q.answer;
                 return (
-                  <div key={num} id={`rq-${num}`} className="card" style={{ marginBottom: 10, padding: '14px 16px', scrollMarginTop: 210 }}>
+                  <div key={num} id={`rq-${num}`} className="card" style={{ marginBottom: 10, padding: '14px 16px', scrollMarginTop: 320 }}>
                     <p style={{ margin: '0 0 8px', fontWeight: 600, fontSize: '0.95rem', display: 'flex', alignItems: 'flex-start', gap: 7 }}>
                       <span style={{ color: 'var(--accent-strong)', flexShrink: 0 }}>{num}.</span>
                       <span style={{ flex: 1 }}>{q.q}</span>
@@ -505,6 +796,11 @@ export default function ReadingPlayerPage() {
                   Kiểm tra Part {part + 1}
                 </button>
               )}
+              {mode === 'practice' && partChecked && (
+                <button className="btn" style={{ marginTop: 4 }} onClick={handleRetryPart}>
+                  Làm lại phần này
+                </button>
+              )}
             </div>
           </div>
         </div>
@@ -512,7 +808,7 @@ export default function ReadingPlayerPage() {
           <div className="card">
             <div className="listen-side-head">
               <strong>Câu hỏi</strong>
-              <span>{answeredCount}/{total} đã trả lời</span>
+              <span><span>{answeredCount}/{total}</span> đã trả lời</span>
             </div>
             {paletteButtons('palette palette-vertical')}
             <button className="btn primary" onClick={handleSubmit} style={{ width: '100%', marginTop: 14 }}>

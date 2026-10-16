@@ -36,7 +36,6 @@
   color: var(--vp-icon);
   font-family: inherit;
   cursor: pointer;
-  outline: none;
   user-select: none;
   -webkit-user-select: none;
   -webkit-touch-callout: none;
@@ -64,6 +63,11 @@
 
 .voice-pill[data-pressed] {
   transform: scale(var(--vp-press));
+}
+
+.voice-pill:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 3px;
 }
 
 .voice-pill:disabled {

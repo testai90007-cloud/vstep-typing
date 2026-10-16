@@ -87,6 +87,14 @@ def one(item):
         refs.append({"file": rel, "sha": sha, "size": size})
     elif st == "fail":
         fails.append((rel, sha))
+    elif st == "skip":
+        # An oversized file must FAIL LOUDLY, never silently vanish from the
+        # deployment: a missing file (e.g. a data chunk) breaks the app at
+        # runtime with no trace in the deploy log. Split the file or host
+        # the asset elsewhere (Vercel Blob / public CDN) instead.
+        err = f"file too large ({size} bytes, base64 over 125000) — split it or host it elsewhere"
+        fails.append((rel, err))
+        log(f"ERROR {rel}: {err}")
     if done[0] % 40 == 0:
         log(f"  {done[0]}/{len(to_upload)}")
 
