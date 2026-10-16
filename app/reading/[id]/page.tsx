@@ -5,6 +5,7 @@
 // auto-score → review with correct answers.
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import type { ReactNode } from 'react';
 import Link from 'next/link';
 import { useParams } from 'next/navigation';
 import { useSession } from 'next-auth/react';
@@ -15,9 +16,13 @@ import {
   CheckIcon,
   ClockIcon,
   FlagIcon,
+  SparklesIcon,
   XCircleIcon,
 } from '@heroicons/react/24/outline';
 import { READING_TESTS } from '@/lib/reading-tests';
+import { getAiSettings } from '@/lib/aiKey';
+import type { ReadingAnalysis, TextSpan } from '@/lib/reading-analyze-prompts';
+import { getEvidenceSpans } from '@/lib/reading-analyze-prompts';
 
 const LETTERS = ['A', 'B', 'C', 'D'];
 const TOTAL_MIN = 60;
@@ -26,6 +31,105 @@ function fmtTime(sec: number): string {
   const m = Math.floor(Math.max(0, sec) / 60);
   const s = Math.max(0, sec) % 60;
   return `${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
+}
+
+// ---- bold the word/phrase a question refers to, inside the passage ----
+// Questions like: The word "habituation" in paragraph 5 is closest in meaning to...
+// or: What does "scaffolding" mean?  -> bold that term in the passage so the
+// reader can find it. Only the first occurrence per term per paragraph is bolded.
+function escapeRegExp(s: string): string {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+function paragraphContains(paragraph: string, term: string): boolean {
+  return new RegExp(`\\b${escapeRegExp(term)}\\b`, 'i').test(paragraph);
+}
+
+function extractTermRef(q: string): { term: string; para: number | null } | null {
+  let m = q.match(/["“]([^"”]+)["”]\s+in\s+paragraph\s+(\d+)/i);
+  if (m) return { term: m[1].trim(), para: parseInt(m[2], 10) };
+  m = q.match(/the\s+(?:word|phrase)\s+["“]([^"”]+)["”][^"]*?paragraph\s+(\d+)/i);
+  if (m) return { term: m[1].trim(), para: parseInt(m[2], 10) };
+  m = q.match(/the\s+(?:word|phrase)\s+([A-Za-z][A-Za-z'-]{1,30})\s+in\s+paragraph\s+(\d+)/i);
+  if (m) return { term: m[1].trim(), para: parseInt(m[2], 10) };
+  m = q.match(/["“]([^"”]{2,40})["”]/);
+  if (m) return { term: m[1].trim(), para: null };
+  return null;
+}
+
+/** Render a paragraph with bold referenced terms + <mark> evidence highlights. */
+function renderRichParagraph(
+  text: string,
+  boldTerms: string[],
+  evidenceSpans: TextSpan[],
+): ReactNode {
+  const boldSpans: TextSpan[] = [];
+  for (const term of boldTerms) {
+    const m = new RegExp(`\\b${escapeRegExp(term)}\\b`, 'i').exec(text);
+    if (m) boldSpans.push({ start: m.index, end: m.index + m[0].length });
+  }
+  const points = new Set<number>([0, text.length]);
+  for (const s of [...boldSpans, ...evidenceSpans]) {
+    points.add(s.start);
+    points.add(s.end);
+  }
+  const sorted = Array.from(points).sort((a, b) => a - b);
+  const nodes: ReactNode[] = [];
+  for (let i = 0; i < sorted.length - 1; i++) {
+    const start = sorted[i];
+    const end = sorted[i + 1];
+    if (start >= end) continue;
+    const seg = text.slice(start, end);
+    const isBold = boldSpans.some((s) => start >= s.start && end <= s.end);
+    const isEvidence = evidenceSpans.some((s) => start >= s.start && end <= s.end);
+    let node: ReactNode = seg;
+    if (isBold) node = <strong>{node}</strong>;
+    if (isEvidence) node = <mark>{node}</mark>;
+    nodes.push(<span key={i}>{node}</span>);
+  }
+  return nodes;
+}
+
+function renderPassageParagraphs(
+  part: {
+    paragraphs: string[];
+    questions: { q: string }[];
+  },
+  evidenceSpans?: Map<number, TextSpan[]>,
+): ReactNode {
+  const termsByPara = new Map<number, string[]>();
+  const push = (idx: number, term: string) => {
+    const list = termsByPara.get(idx) ?? [];
+    if (!list.includes(term)) list.push(term);
+    termsByPara.set(idx, list);
+  };
+  const uniqueElsewhere = (term: string): number | null => {
+    const hits = part.paragraphs
+      .map((p, i) => (paragraphContains(p, term) ? i : -1))
+      .filter((i) => i >= 0);
+    return hits.length === 1 ? hits[0] : null;
+  };
+  for (const qq of part.questions) {
+    const ref = extractTermRef(qq.q);
+    if (!ref) continue;
+    if (ref.para != null) {
+      const idx = ref.para - 1;
+      if (idx >= 0 && idx < part.paragraphs.length && paragraphContains(part.paragraphs[idx], ref.term)) {
+        push(idx, ref.term);
+      } else {
+        // Stated paragraph doesn't contain the term (data off-by-one);
+        // bold it only if it occurs in exactly one other paragraph.
+        const other = uniqueElsewhere(ref.term);
+        if (other != null) push(other, ref.term);
+      }
+    } else {
+      const other = uniqueElsewhere(ref.term);
+      if (other != null) push(other, ref.term);
+    }
+  }
+  return part.paragraphs.map((para, i) => (
+    <p key={i}>{renderRichParagraph(para, termsByPara.get(i) ?? [], evidenceSpans?.get(i) ?? [])}</p>
+  ));
 }
 
 export default function ReadingPlayerPage() {
@@ -40,6 +144,23 @@ export default function ReadingPlayerPage() {
   const [timeLeft, setTimeLeft] = useState(TOTAL_MIN * 60);
   const [submitted, setSubmitted] = useState(false);
   const [mode, setMode] = useState<'pick' | 'practice' | 'mock'>('pick');
+
+  // ---- AI analysis (mock review only) ----
+  const [analysisMode, setAnalysisMode] = useState<'single' | 'bulk' | null>(null);
+  const [analysis, setAnalysis] = useState<Record<string, ReadingAnalysis>>({});
+  const [analyzing, setAnalyzing] = useState<Record<string, boolean>>({});
+  const [analyzeError, setAnalyzeError] = useState<Record<string, string>>({});
+  const [bulk, setBulk] = useState<{
+    running: boolean;
+    done: number;
+    total: number;
+    note: string | null;
+  }>({ running: false, done: 0, total: 0, note: null });
+  const [evidenceHighlight, setEvidenceHighlight] = useState<{
+    part: number;
+    q: number;
+  } | null>(null);
+  const bulkStopRef = useRef(false);
   /** practice mode: parts whose answers were checked immediately */
   const [checkedParts, setCheckedParts] = useState<Record<number, boolean>>({});
   const submittedRef = useRef(false);
@@ -187,6 +308,111 @@ export default function ReadingPlayerPage() {
   }, [submitted, draftKey]);
 
   /** Reset everything and go back to the mode picker (same test). */
+  // ---- AI analysis helpers ----
+  const analysisKey = (pi: number, qi: number) => `${pi}-${qi}`;
+
+  /** Evidence spans for the currently highlighted question of one part. */
+  const reviewEvidenceSpans = (pi: number): Map<number, TextSpan[]> => {
+    if (!test || evidenceHighlight?.part !== pi) return new Map();
+    const a = analysis[analysisKey(pi, evidenceHighlight.q)];
+    if (!a) return new Map();
+    return getEvidenceSpans(test.parts[pi].paragraphs, a.evidence);
+  };
+
+  /** Toggle evidence highlight for a question; scrolls its passage into view. */
+  const toggleEvidenceHighlight = (pi: number, qi: number) => {
+    if (evidenceHighlight?.part === pi && evidenceHighlight?.q === qi) {
+      setEvidenceHighlight(null);
+      return;
+    }
+    setEvidenceHighlight({ part: pi, q: qi });
+    window.setTimeout(() => {
+      document
+        .getElementById(`review-passage-${pi}`)
+        ?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }, 60);
+  };
+
+  /** Analyze one question via /api/reading/analyze. */
+  const analyzeQuestion = async (
+    pi: number,
+    qi: number,
+  ): Promise<{ ok: boolean; error?: string }> => {
+    if (!test) return { ok: false, error: 'Không tìm thấy đề.' };
+    const key = analysisKey(pi, qi);
+    if (analysis[key]) return { ok: true };
+    if (analyzing[key]) return { ok: false, error: 'Đang phân tích câu này.' };
+    const q = test.parts[pi].questions[qi];
+    const chosen = answers[qNum(pi, qi)];
+    const ai = getAiSettings();
+    setAnalyzing((prev) => ({ ...prev, [key]: true }));
+    setAnalyzeError((prev) => ({ ...prev, [key]: '' }));
+    try {
+      const res = await fetch('/api/reading/analyze', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          provider: ai.provider,
+          apiKey: ai.apiKey,
+          passage: test.parts[pi].paragraphs.join('\n\n'),
+          question: q.q,
+          options: q.options,
+          userAnswer: chosen === undefined ? null : chosen,
+          correctAnswer: q.answer,
+        }),
+      });
+      const text = await res.text();
+      let data: { analysis?: ReadingAnalysis; error?: string } = {};
+      try {
+        data = text ? JSON.parse(text) : {};
+      } catch {
+        throw new Error('Máy chủ phân tích đang bận. Thử lại sau.');
+      }
+      if (!res.ok) throw new Error(data.error || 'Phân tích thất bại.');
+      if (!data.analysis) throw new Error('AI không trả về kết quả phân tích.');
+      setAnalysis((prev) => ({ ...prev, [key]: data.analysis as ReadingAnalysis }));
+      return { ok: true };
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : 'Phân tích thất bại.';
+      setAnalyzeError((prev) => ({ ...prev, [key]: msg }));
+      return { ok: false, error: msg };
+    } finally {
+      setAnalyzing((prev) => ({ ...prev, [key]: false }));
+    }
+  };
+
+  /** Analyze all questions one by one, with progress + stop. Skips analyzed ones. */
+  const analyzeAll = async () => {
+    if (!test) return;
+    bulkStopRef.current = false;
+    const keys: [number, number][] = [];
+    test.parts.forEach((p, pi) => {
+      p.questions.forEach((_q, qi) => {
+        if (!analysis[analysisKey(pi, qi)]) keys.push([pi, qi]);
+      });
+    });
+    const already = total - keys.length;
+    setBulk({ running: true, done: already, total, note: null });
+    for (const [pi, qi] of keys) {
+      if (bulkStopRef.current) {
+        setBulk((prev) => ({ ...prev, running: false, note: 'Đã dừng.' }));
+        return;
+      }
+      const result = await analyzeQuestion(pi, qi);
+      setBulk((prev) => ({ ...prev, done: prev.done + 1 }));
+      if (!result.ok) {
+        // Stop the bulk run so a rate limit / bad key doesn't burn all 40 calls.
+        setBulk((prev) => ({
+          ...prev,
+          running: false,
+          note: `Dừng ở câu ${qNum(pi, qi)}.${result.error ? ` ${result.error}` : ''} Bấm “Tiếp tục” để phân tích tiếp.`,
+        }));
+        return;
+      }
+    }
+    setBulk((prev) => ({ ...prev, running: false, note: null }));
+  };
+
   const handleRetake = () => {
     submittedRef.current = false;
     setSubmitted(false);
@@ -199,6 +425,13 @@ export default function ReadingPlayerPage() {
     setResumeHandled(null);
     setRestoreNotice(null);
     setSubmitConfirm(false);
+    setAnalysisMode(null);
+    setAnalysis({});
+    setAnalyzing({});
+    setAnalyzeError({});
+    setBulk({ running: false, done: 0, total: 0, note: null });
+    setEvidenceHighlight(null);
+    bulkStopRef.current = true;
     startRef.current = null;
     setMode('pick');
     if (draftKey) {
@@ -364,7 +597,7 @@ export default function ReadingPlayerPage() {
 
   if (!test) {
     return (
-      <main className="page">
+      <main className="page reading-player">
         <div className="nav-top">
           <Link href="/reading" className="back">
             <ArrowLeftIcon width={16} height={16} />
@@ -391,7 +624,7 @@ export default function ReadingPlayerPage() {
     const pct = Math.round((score / total) * 100);
 
     return (
-      <main className="page">
+      <main className="page reading-player">
         <div className="nav-top">
           <Link href="/reading" className="back">
             <ArrowLeftIcon width={16} height={16} />
@@ -462,6 +695,99 @@ export default function ReadingPlayerPage() {
           </p>
         </div>
 
+        {mode === 'mock' && (
+          <div className="card" style={{ marginTop: 18 }}>
+            <p style={{ margin: 0, display: 'flex', alignItems: 'center', gap: 8, fontWeight: 700 }}>
+              <SparklesIcon width={18} height={18} />
+              Phân tích với AI
+            </p>
+            <p style={{ margin: '6px 0 0', fontSize: '0.88rem', color: 'var(--muted)' }}>
+              Giải thích vì sao đáp án đúng là đúng, vì sao lựa chọn của bạn sai, kèm bằng chứng highlight trong đoạn văn.
+            </p>
+            {analysisMode === null && (
+              <>
+                <div style={{ display: 'flex', gap: 10, marginTop: 12, flexWrap: 'wrap' }}>
+                  <button
+                    className="btn primary"
+                    onClick={() => {
+                      setAnalysisMode('bulk');
+                      void analyzeAll();
+                    }}
+                  >
+                    Phân tích toàn bộ
+                  </button>
+                  <button className="btn" onClick={() => setAnalysisMode('single')}>
+                    Phân tích từng câu
+                  </button>
+                </div>
+                <p style={{ margin: '8px 0 0', fontSize: '0.82rem', color: 'var(--muted)' }}>
+                  Phân tích toàn bộ chạy lần lượt cả 40 câu nên đợi lâu (vài phút) — bạn có thể bấm Dừng giữa chừng. Phân tích từng câu thì chỉ phân tích câu bạn chọn.
+                </p>
+              </>
+            )}
+            {analysisMode === 'single' && (
+              <p style={{ margin: '10px 0 0', fontSize: '0.88rem' }}>
+                Đang ở chế độ phân tích từng câu — bấm nút “Phân tích với AI” ở từng câu hỏi.{' '}
+                <button
+                  type="button"
+                  onClick={() => setAnalysisMode(null)}
+                  style={{
+                    background: 'none',
+                    border: 'none',
+                    padding: 0,
+                    font: 'inherit',
+                    fontWeight: 700,
+                    color: 'var(--accent-strong)',
+                    cursor: 'pointer',
+                    textDecoration: 'underline',
+                  }}
+                >
+                  Đổi lựa chọn
+                </button>
+              </p>
+            )}
+            {analysisMode === 'bulk' && (
+              <div style={{ marginTop: 12 }}>
+                {bulk.running ? (
+                  <>
+                    <p style={{ margin: 0, fontSize: '0.9rem' }}>
+                      Đang phân tích câu {Math.min(bulk.done + 1, bulk.total)}/{bulk.total}…
+                    </p>
+                    <div className="score-bar" style={{ marginTop: 8 }}>
+                      <div style={{ width: `${bulk.total ? (bulk.done / bulk.total) * 100 : 0}%` }} />
+                    </div>
+                    <button
+                      className="btn"
+                      style={{ marginTop: 10 }}
+                      onClick={() => {
+                        bulkStopRef.current = true;
+                      }}
+                    >
+                      Dừng
+                    </button>
+                  </>
+                ) : bulk.done >= bulk.total && bulk.total > 0 ? (
+                  <p style={{ margin: 0, fontSize: '0.9rem' }}>
+                    Đã phân tích xong {bulk.done}/{bulk.total} câu. Bấm vào từng câu để xem giải thích và highlight bằng chứng trong đoạn văn.
+                  </p>
+                ) : (
+                  <>
+                    {bulk.note && <p style={{ margin: '0 0 8px', fontSize: '0.9rem' }}>{bulk.note}</p>}
+                    <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+                      <button className="btn primary" onClick={() => void analyzeAll()}>
+                        Tiếp tục phân tích
+                      </button>
+                      <button className="btn" onClick={() => setAnalysisMode('single')}>
+                        Chuyển sang phân tích từng câu
+                      </button>
+                    </div>
+                  </>
+                )}
+              </div>
+            )}
+          </div>
+        )}
+
         <h2 className="section-title">Xem lại bài làm</h2>
         {test.parts.map((p, pi) => (
           <section key={pi} style={{ marginTop: 18 }}>
@@ -469,18 +795,36 @@ export default function ReadingPlayerPage() {
               Part {pi + 1} · {p.title}
             </h3>
             <div className="read-split" style={{ marginTop: 10 }}>
-              <div className="card read-passage">
-                {p.paragraphs.map((para, i) => (
-                  <p key={i}>{para}</p>
-                ))}
+              <div className="card read-passage" id={`review-passage-${pi}`}>
+                {renderPassageParagraphs(p, reviewEvidenceSpans(pi))}
               </div>
               <div>
                 {p.questions.map((q, qi) => {
                   const num = qNum(pi, qi);
                   const chosen = answers[num];
                   const correct = chosen === q.answer;
+                  const aKey = analysisKey(pi, qi);
+                  const a = analysis[aKey];
+                  const isHighlighted =
+                    evidenceHighlight?.part === pi && evidenceHighlight?.q === qi;
                   return (
-                    <div key={qi} className="card" style={{ marginBottom: 10, padding: '14px 16px' }}>
+                    <div
+                      key={qi}
+                      className="card"
+                      style={{
+                        marginBottom: 10,
+                        padding: '14px 16px',
+                        cursor: a ? 'pointer' : undefined,
+                        boxShadow: isHighlighted
+                          ? '0 0 0 2px rgba(245, 158, 11, 0.7)'
+                          : undefined,
+                      }}
+                      onClick={(e) => {
+                        if ((e.target as HTMLElement).closest('button')) return;
+                        if (a) toggleEvidenceHighlight(pi, qi);
+                      }}
+                      title={a ? 'Bấm để highlight bằng chứng trong đoạn văn' : undefined}
+                    >
                       <p style={{ margin: '0 0 8px', fontWeight: 600, fontSize: '0.92rem', display: 'flex', alignItems: 'flex-start', gap: 7 }}>
                         <span style={{ color: 'var(--muted)' }}>{num}.</span>
                         <span style={{ flex: 1 }}>{q.q}</span>
@@ -522,6 +866,77 @@ export default function ReadingPlayerPage() {
                           );
                         })}
                       </div>
+                      {mode === 'mock' && analysisMode === 'single' && !a && (
+                        <div style={{ marginTop: 10 }}>
+                          <button
+                            className="btn"
+                            onClick={() => void analyzeQuestion(pi, qi)}
+                            disabled={!!analyzing[aKey]}
+                          >
+                            <SparklesIcon width={15} height={15} />
+                            {analyzing[aKey] ? 'Đang phân tích…' : 'Phân tích với AI'}
+                          </button>
+                          {analyzeError[aKey] && (
+                            <p style={{ margin: '8px 0 0', fontSize: '0.85rem', color: 'var(--wrong)' }}>
+                              {analyzeError[aKey]}{' '}
+                              <button
+                                type="button"
+                                onClick={() => void analyzeQuestion(pi, qi)}
+                                style={{
+                                  background: 'none',
+                                  border: 'none',
+                                  padding: 0,
+                                  font: 'inherit',
+                                  fontWeight: 700,
+                                  color: 'var(--accent-strong)',
+                                  cursor: 'pointer',
+                                  textDecoration: 'underline',
+                                }}
+                              >
+                                Thử lại
+                              </button>
+                            </p>
+                          )}
+                        </div>
+                      )}
+                      {a && (
+                        <div
+                          style={{
+                            marginTop: 12,
+                            borderTop: '1px solid var(--border)',
+                            paddingTop: 10,
+                            fontSize: '0.9rem',
+                            lineHeight: 1.65,
+                          }}
+                        >
+                          <p style={{ margin: '0 0 6px' }}>
+                            <strong>Vì sao đáp án đúng là đúng:</strong> {a.whyCorrect}
+                          </p>
+                          {a.whyUserWrong && (
+                            <p style={{ margin: '0 0 6px' }}>
+                              <strong>Vì sao lựa chọn của bạn sai:</strong> {a.whyUserWrong}
+                            </p>
+                          )}
+                          <p style={{ margin: '0 0 6px' }}>
+                            <strong>Mẹo:</strong> {a.tip}
+                          </p>
+                          {a.evidence.length > 0 && (
+                            <div style={{ marginTop: 8 }}>
+                              <strong>Bằng chứng trong đoạn:</strong>
+                              <ul style={{ margin: '4px 0 0', paddingLeft: 18, color: 'var(--muted)' }}>
+                                {a.evidence.map((ev, i) => (
+                                  <li key={i} style={{ marginBottom: 2 }}>“{ev}”</li>
+                                ))}
+                              </ul>
+                            </div>
+                          )}
+                          <p style={{ margin: '8px 0 0', fontSize: '0.82rem', color: 'var(--muted)' }}>
+                            {isHighlighted
+                              ? 'Đang highlight bằng chứng trong đoạn văn — bấm vào câu để tắt.'
+                              : 'Bấm vào câu hỏi để highlight bằng chứng trong đoạn văn.'}
+                          </p>
+                        </div>
+                      )}
                     </div>
                   );
                 })}
@@ -536,7 +951,7 @@ export default function ReadingPlayerPage() {
   // ------------------------------ MODE PICKER ------------------------------
   if (mode === 'pick') {
     return (
-      <main className="page">
+      <main className="page reading-player">
         <div className="nav-top">
           <Link href="/reading" className="back">
             <ArrowLeftIcon width={16} height={16} />
@@ -588,7 +1003,7 @@ export default function ReadingPlayerPage() {
   const partChecked = mode === 'practice' && !!checkedParts[part];
 
   return (
-    <main className="page">
+    <main className="page reading-player">
       <div className="sticky-player-bar">
         <div className="nav-top" style={{ marginBottom: 8 }}>
           <Link href="/reading" className="back">
@@ -703,8 +1118,7 @@ export default function ReadingPlayerPage() {
         </div>
       )}
 
-      <div className="listen-layout">
-        <div className="listen-main">
+      <div>
           <div className="seg" role="tablist" aria-label="Chọn bài đọc">
             {test.parts.map((p, i) => (
               <button
@@ -725,9 +1139,7 @@ export default function ReadingPlayerPage() {
               <h2 style={{ margin: '0 0 12px', fontSize: '1.15rem', fontWeight: 800 }}>
                 {active.title}
               </h2>
-              {active.paragraphs.map((para, i) => (
-                <p key={i}>{para}</p>
-              ))}
+              {renderPassageParagraphs(active)}
             </div>
             <div>
               {active.questions.map((q, qi) => {
@@ -804,20 +1216,6 @@ export default function ReadingPlayerPage() {
             </div>
           </div>
         </div>
-        <aside className="listen-side">
-          <div className="card">
-            <div className="listen-side-head">
-              <strong>Câu hỏi</strong>
-              <span><span>{answeredCount}/{total}</span> đã trả lời</span>
-            </div>
-            {paletteButtons('palette palette-vertical')}
-            <button className="btn primary" onClick={handleSubmit} style={{ width: '100%', marginTop: 14 }}>
-              <CheckIcon width={16} height={16} />
-              {mode === 'mock' ? 'Nộp bài' : 'Hoàn thành'}
-            </button>
-          </div>
-        </aside>
-      </div>
     </main>
   );
 }

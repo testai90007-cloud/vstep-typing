@@ -43,14 +43,14 @@ export default function ReadingListPage() {
       .catch(() => {});
   }, [session]);
 
-  const searchItems: SearchItem[] = READING_TITLE_LIST;
+  const searchItems: SearchItem[] = [...READING_TITLE_LIST].sort((a, b) => b.num - a.num);
 
   const openTest = (item: SearchItem) => {
     router.push(`/reading/${item.id}`);
   };
 
   const openRandom = () => {
-    const t = READING_TITLE_LIST[Math.floor(Math.random() * READING_TITLE_LIST.length)];
+    const t = searchItems[Math.floor(Math.random() * searchItems.length)];
     router.push(`/reading/${t.id}`);
   };
 
@@ -103,7 +103,7 @@ export default function ReadingListPage() {
         onRandom={openRandom}
       />
       <div className="test-grid" style={{ marginTop: 16 }}>
-        {READING_TITLE_LIST.map((t) => (
+        {searchItems.map((t) => (
           <Link key={t.id} href={`/reading/${t.id}`} className="test-cell">
             <strong>{t.title.replace(/^Đề\s+/, '')}</strong>
             {best[t.id] != null && (
