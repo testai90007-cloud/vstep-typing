@@ -19,7 +19,7 @@ import {
   SparklesIcon,
   XCircleIcon,
 } from '@heroicons/react/24/outline';
-import { READING_TESTS } from '@/lib/reading-tests';
+import { loadReadingTest, type ReadingTest } from '@/lib/reading-tests';
 import { getAiSettings } from '@/lib/aiKey';
 import type { ReadingAnalysis, TextSpan } from '@/lib/reading-analyze-prompts';
 import { getEvidenceSpans } from '@/lib/reading-analyze-prompts';
@@ -134,10 +134,19 @@ function renderPassageParagraphs(
 
 export default function ReadingPlayerPage() {
   const params = useParams();
-  const test = useMemo(
-    () => READING_TESTS.find((t) => t.id === params.id),
-    [params.id]
-  );
+  // The 1000-test bank is loaded on demand (one ~100 KB chunk per test),
+  // not bundled into the page. undefined = loading, null = not found.
+  const [test, setTest] = useState<ReadingTest | null | undefined>(undefined);
+  useEffect(() => {
+    let cancelled = false;
+    setTest(undefined);
+    loadReadingTest(params.id as string).then((t) => {
+      if (!cancelled) setTest(t ?? null);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [params.id]);
 
   const [part, setPart] = useState(0);
   const [answers, setAnswers] = useState<Record<number, number>>({});
@@ -634,6 +643,20 @@ export default function ReadingPlayerPage() {
       })}
     </div>
   );
+
+  if (test === undefined) {
+    return (
+      <main className="page reading-player">
+        <div className="nav-top">
+          <Link href="/reading" className="back">
+            <ArrowLeftIcon width={16} height={16} />
+            Danh sách đề
+          </Link>
+        </div>
+        <p>Đang tải đề…</p>
+      </main>
+    );
+  }
 
   if (!test) {
     return (
