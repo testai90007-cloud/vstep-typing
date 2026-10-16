@@ -1096,24 +1096,31 @@ export default function ReadingPlayerPage() {
         </p>
       )}
       {submitConfirm && (
-        <div className="card" role="dialog" aria-label="Xác nhận nộp bài" style={{ marginTop: 14 }}>
-          <p style={{ margin: '0 0 14px' }}>
-            Bạn còn {total - answeredCount} câu chưa trả lời.{' '}
-            {mode === 'mock' ? 'Nộp bài' : 'Hoàn thành'} ngay?
-          </p>
-          <div className="btn-row">
-            <button
-              className="btn primary"
-              onClick={() => {
-                setSubmitConfirm(false);
-                doSubmit();
-              }}
-            >
-              {mode === 'mock' ? 'Nộp bài' : 'Hoàn thành'}
-            </button>
-            <button className="btn" onClick={() => setSubmitConfirm(false)}>
-              Tiếp tục làm
-            </button>
+        <div className="modal-overlay" onClick={() => setSubmitConfirm(false)}>
+          <div
+            className="card modal"
+            role="dialog"
+            aria-label="Xác nhận nộp bài"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <p style={{ margin: '0 0 14px' }}>
+              Bạn còn {total - answeredCount} câu chưa trả lời.{' '}
+              {mode === 'mock' ? 'Nộp bài' : 'Hoàn thành'} ngay?
+            </p>
+            <div className="btn-row">
+              <button
+                className="btn primary"
+                onClick={() => {
+                  setSubmitConfirm(false);
+                  doSubmit();
+                }}
+              >
+                {mode === 'mock' ? 'Nộp bài' : 'Hoàn thành'}
+              </button>
+              <button className="btn" onClick={() => setSubmitConfirm(false)}>
+                Tiếp tục làm
+              </button>
+            </div>
           </div>
         </div>
       )}
