@@ -1669,37 +1669,6 @@ textarea.ta.write-big { min-height: 520px; font-size: 1.02rem; }
 }
 .modal { max-width: 420px; width: 100%; padding: 24px; }
 
-/* "Hỏi AI" floating button + side panel (Chrome "Hỏi Gemini" pattern) */
-.ai-fab {
-  position: fixed; right: 20px; bottom: 20px; z-index: 45;
-  display: inline-flex; align-items: center; gap: 8px;
-  padding: 11px 18px; border-radius: 999px;
-  background: var(--ink); color: var(--bg);
-  font-weight: 700; font-size: 0.9rem;
-  border: 1px solid var(--border);
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.18);
-  cursor: pointer;
-}
-.ai-fab:hover { opacity: 0.92; }
-.ai-panel {
-  position: fixed; top: 0; right: 0; bottom: 0; z-index: 55;
-  width: min(420px, 100%);
-  background: var(--paper);
-  border-left: 1px solid var(--border);
-  box-shadow: -12px 0 32px rgba(0, 0, 0, 0.14);
-  overflow-y: auto; padding: 16px 18px 24px;
-}
-@media (max-width: 768px) {
-  /* sit above the mobile bottom tab bar */
-  .ai-fab { bottom: calc(88px + env(safe-area-inset-bottom)); right: 14px; }
-  .ai-panel {
-    top: auto; left: 0; right: 0; bottom: 0; width: 100%; max-height: 78vh;
-    border-left: none; border-top: 1px solid var(--border);
-    border-radius: 18px 18px 0 0;
-    padding-bottom: calc(20px + env(safe-area-inset-bottom));
-  }
-}
-
 @media (max-width: 980px) {
   .mode-cards { grid-template-columns: 1fr; }
   .speak-layout { grid-template-columns: 1fr; }
