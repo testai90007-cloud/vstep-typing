@@ -1811,6 +1811,42 @@ textarea.ta.write-big { min-height: 520px; font-size: 1.02rem; }
 }
 .read-passage p:last-child { margin-bottom: 0; }
 
+/* ---- reading player: wider page + passage-favoured split ---- */
+.reading-player { width: min(1440px, calc(100% - 48px)); }
+.reading-player .read-split {
+  grid-template-columns: minmax(0, 7fr) minmax(0, 6fr);
+  gap: 20px;
+}
+@media (max-width: 960px) {
+  .reading-player .read-split { grid-template-columns: 1fr; }
+}
+/* Keep the passage visible while scrolling through the long question
+   column: it sticks under the player bar. Passages taller than the
+   viewport scroll inside the card instead of pushing questions down.
+   Desktop only — on mobile the split stacks to one column. */
+@media (min-width: 961px) {
+  .reading-player .read-passage {
+    position: sticky;
+    top: 70px;
+    align-self: start;
+    max-height: calc(100vh - 94px);
+    overflow-y: auto;
+  }
+}
+
+/* Evidence highlight: AI analysis quotes, shown when a reviewed question
+   is clicked. Amber so it reads as "look here", distinct from bold. */
+.reading-player .read-passage mark {
+  background: #fde68a;
+  color: #1c1917;
+  padding: 0 2px;
+  border-radius: 3px;
+}
+html[data-theme='dark'] .reading-player .read-passage mark {
+  background: #854d0e;
+  color: #fef9c3;
+}
+
 /* best-score badge inside a dense test cell */
 .cell-score {
   display: inline-flex; align-items: center; gap: 4px;
