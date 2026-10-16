@@ -93,7 +93,7 @@ export default function ReadingListPage() {
         Danh sách đề
       </h2>
       <p className="lead" style={{ margin: '-4px 0 14px', fontSize: '0.9rem' }}>
-        200 đề thi thử — mỗi đề gồm 4 bài đọc × 10 câu hỏi, đúng 60 phút như thi thật.
+        1000 đề thi thử — mỗi đề gồm 4 bài đọc × 10 câu hỏi, đúng 60 phút như thi thật.
         Gõ số đề để tìm nhanh, hoặc chọn một đề bên dưới.
       </p>
       <TestSearchBar
