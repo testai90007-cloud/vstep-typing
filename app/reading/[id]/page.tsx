@@ -160,11 +160,6 @@ export default function ReadingPlayerPage() {
     part: number;
     q: number;
   } | null>(null);
-  /** "Hỏi AI" side panel (Chrome "Hỏi Gemini" pattern): always-available
-   * floating button; clicking a question card brings that question into
-   * the panel for analysis, with evidence highlight in the passage. */
-  const [aiPanelOpen, setAiPanelOpen] = useState(false);
-  const [aiPanelQ, setAiPanelQ] = useState<{ pi: number; qi: number } | null>(null);
   const bulkStopRef = useRef(false);
   /** practice mode: parts whose answers were checked immediately */
   const [checkedParts, setCheckedParts] = useState<Record<number, boolean>>({});
@@ -338,25 +333,6 @@ export default function ReadingPlayerPage() {
     }, 60);
   };
 
-  /** Bring a question into the "Hỏi AI" panel (opens it) and highlight
-   * its evidence in the passage when it was already analyzed. */
-  const openAiPanel = (pi: number, qi: number) => {
-    setAiPanelQ({ pi, qi });
-    setAiPanelOpen(true);
-    setEvidenceHighlight(analysis[analysisKey(pi, qi)] ? { part: pi, q: qi } : null);
-  };
-  /** Close the panel and clear the passage highlight. */
-  const closeAiPanel = () => {
-    setAiPanelOpen(false);
-    setEvidenceHighlight(null);
-  };
-  /** Move the panel to another question by global number (1-based). */
-  const moveAiPanel = (num: number) => {
-    if (!test || num < 1 || num > total) return;
-    const pi = partOf(num);
-    openAiPanel(pi, num - 1 - (partOffsets[pi] ?? 0));
-  };
-
   /** Analyze one question via /api/reading/analyze. */
   const analyzeQuestion = async (
     pi: number,
@@ -493,8 +469,6 @@ export default function ReadingPlayerPage() {
     setAnalysis({});
     setAnalyzing({});
     setAnalyzeError({});
-    setAiPanelOpen(false);
-    setAiPanelQ(null);
     setBulk({ running: false, done: 0, total: 0, note: null });
     setEvidenceHighlight(null);
     bulkStopRef.current = true;
@@ -689,13 +663,6 @@ export default function ReadingPlayerPage() {
     });
     const pct = Math.round((score / total) * 100);
 
-    // Question currently brought into the "Hỏi AI" panel (if any).
-    const panelQ = aiPanelQ ? test.parts[aiPanelQ.pi]?.questions[aiPanelQ.qi] : undefined;
-    const panelNum = aiPanelQ ? qNum(aiPanelQ.pi, aiPanelQ.qi) : 0;
-    const panelKey = aiPanelQ ? analysisKey(aiPanelQ.pi, aiPanelQ.qi) : '';
-    const panelAnalysis = aiPanelQ ? analysis[panelKey] : undefined;
-    const panelChosen = aiPanelQ ? answers[panelNum] : undefined;
-
     return (
       <main className="page reading-player">
         <div className="nav-top">
@@ -800,7 +767,7 @@ export default function ReadingPlayerPage() {
             )}
             {analysisMode === 'single' && (
               <p style={{ margin: '10px 0 0', fontSize: '0.88rem' }}>
-                Đang ở chế độ phân tích từng câu — bấm vào một câu hỏi để đưa câu đó vào khung Hỏi AI, rồi bấm “Phân tích với AI” trong khung.{' '}
+                Đang ở chế độ phân tích từng câu — bấm nút “Phân tích với AI” ở từng câu hỏi.{' '}
                 <button
                   type="button"
                   onClick={() => setAnalysisMode(null)}
@@ -887,16 +854,16 @@ export default function ReadingPlayerPage() {
                       style={{
                         marginBottom: 10,
                         padding: '14px 16px',
-                        cursor: 'pointer',
+                        cursor: a ? 'pointer' : undefined,
                         boxShadow: isHighlighted
                           ? '0 0 0 2px rgba(245, 158, 11, 0.7)'
                           : undefined,
                       }}
                       onClick={(e) => {
                         if ((e.target as HTMLElement).closest('button')) return;
-                        openAiPanel(pi, qi);
+                        if (a) toggleEvidenceHighlight(pi, qi);
                       }}
-                      title="Bấm để đưa câu này vào khung Hỏi AI"
+                      title={a ? 'Bấm để highlight bằng chứng trong đoạn văn' : undefined}
                     >
                       <p style={{ margin: '0 0 8px', fontWeight: 600, fontSize: '0.92rem', display: 'flex', alignItems: 'flex-start', gap: 7 }}>
                         <span style={{ color: 'var(--muted)' }}>{num}.</span>
@@ -943,10 +910,7 @@ export default function ReadingPlayerPage() {
                         <div style={{ marginTop: 10 }}>
                           <button
                             className="btn"
-                            onClick={() => {
-                              openAiPanel(pi, qi);
-                              void analyzeQuestion(pi, qi);
-                            }}
+                            onClick={() => void analyzeQuestion(pi, qi)}
                             disabled={!!analyzing[aKey]}
                           >
                             <SparklesIcon width={15} height={15} />
@@ -1008,8 +972,8 @@ export default function ReadingPlayerPage() {
                           )}
                           <p style={{ margin: '8px 0 0', fontSize: '0.82rem', color: 'var(--muted)' }}>
                             {isHighlighted
-                              ? 'Đang highlight bằng chứng trong đoạn văn.'
-                              : 'Bấm vào câu hỏi để đưa câu đó vào khung Hỏi AI.'}
+                              ? 'Đang highlight bằng chứng trong đoạn văn — bấm vào câu để tắt.'
+                              : 'Bấm vào câu hỏi để highlight bằng chứng trong đoạn văn.'}
                           </p>
                         </div>
                       )}
@@ -1020,188 +984,6 @@ export default function ReadingPlayerPage() {
             </div>
           </section>
         ))}
-        {/* "Hỏi AI" floating button + side panel (Chrome "Hỏi Gemini" pattern):
-            always visible in review; clicking a question card brings that
-            question into the panel for analysis. */}
-        <button
-          type="button"
-          className="ai-fab"
-          onClick={() => {
-            if (!aiPanelQ) openAiPanel(0, 0);
-            else setAiPanelOpen(true);
-          }}
-          aria-label="Mở khung Hỏi AI"
-        >
-          <SparklesIcon width={16} height={16} /> Hỏi AI
-        </button>
-        {aiPanelOpen && aiPanelQ && panelQ && (
-          <aside className="ai-panel" role="dialog" aria-label="Hỏi AI">
-            <div
-              style={{
-                display: 'flex',
-                alignItems: 'center',
-                gap: 8,
-                marginBottom: 12,
-              }}
-            >
-              <p
-                style={{
-                  margin: 0,
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: 8,
-                  fontWeight: 700,
-                  flex: 1,
-                }}
-              >
-                <SparklesIcon width={18} height={18} />
-                {`Hỏi AI · Câu ${panelNum}/${total}`}
-              </p>
-              <button
-                type="button"
-                className="btn"
-                onClick={() => moveAiPanel(panelNum - 1)}
-                disabled={panelNum <= 1}
-                aria-label="Câu trước"
-              >
-                ←
-              </button>
-              <button
-                type="button"
-                className="btn"
-                onClick={() => moveAiPanel(panelNum + 1)}
-                disabled={panelNum >= total}
-                aria-label="Câu sau"
-              >
-                →
-              </button>
-              <button
-                type="button"
-                className="btn"
-                onClick={closeAiPanel}
-                aria-label="Đóng khung Hỏi AI"
-              >
-                ✕
-              </button>
-            </div>
-            <p style={{ margin: '0 0 10px', fontWeight: 600, fontSize: '0.95rem' }}>
-              {panelQ.q}
-            </p>
-            <div style={{ display: 'grid', gap: 6, marginBottom: 14 }}>
-              {panelQ.options.map((opt, oi) => {
-                const isAnswer = oi === panelQ.answer;
-                const isChosen = oi === panelChosen;
-                const cls = `opt-card${isAnswer ? ' correct' : ''}${!isAnswer && isChosen ? ' wrong-pick' : ''}`;
-                return (
-                  <div key={oi} className={cls} style={{ cursor: 'default' }}>
-                    <span className="letter">{LETTERS[oi]}</span>
-                    <span>{opt}</span>
-                    {isAnswer && (
-                      <span
-                        style={{
-                          marginLeft: 'auto',
-                          fontSize: '0.78rem',
-                          color: 'var(--correct)',
-                          fontWeight: 700,
-                          display: 'inline-flex',
-                          alignItems: 'center',
-                          gap: 5,
-                        }}
-                      >
-                        <CheckIcon width={13} height={13} />
-                        đáp án đúng
-                      </span>
-                    )}
-                  </div>
-                );
-              })}
-            </div>
-            {panelAnalysis ? (
-              <div style={{ fontSize: '0.9rem', lineHeight: 1.65 }}>
-                <p style={{ margin: '0 0 6px' }}>
-                  <strong>Vì sao đáp án đúng là đúng:</strong> {panelAnalysis.whyCorrect}
-                </p>
-                {panelAnalysis.whyUserWrong && (
-                  <p style={{ margin: '0 0 6px' }}>
-                    <strong>Vì sao lựa chọn của bạn sai:</strong> {panelAnalysis.whyUserWrong}
-                  </p>
-                )}
-                <p style={{ margin: '0 0 6px' }}>
-                  <strong>Mẹo:</strong> {panelAnalysis.tip}
-                </p>
-                {panelAnalysis.evidence.length > 0 && (
-                  <div style={{ marginTop: 8 }}>
-                    <strong>Bằng chứng trong đoạn</strong>
-                    <span style={{ color: 'var(--muted)', fontSize: '0.85rem' }}>
-                      {' '}
-                      — bấm vào một bằng chứng để highlight / tắt highlight trong đoạn văn.
-                    </span>
-                    <ul style={{ margin: '4px 0 0', paddingLeft: 18 }}>
-                      {panelAnalysis.evidence.map((ev, i) => (
-                        <li key={i} style={{ marginBottom: 4 }}>
-                          <button
-                            type="button"
-                            onClick={() =>
-                              toggleEvidenceHighlight(aiPanelQ.pi, aiPanelQ.qi)
-                            }
-                            style={{
-                              background: 'none',
-                              border: 'none',
-                              padding: 0,
-                              font: 'inherit',
-                              textAlign: 'left',
-                              cursor: 'pointer',
-                              color: 'var(--muted)',
-                              textDecoration: 'underline',
-                              textDecorationColor: 'var(--border)',
-                            }}
-                          >
-                            “{ev}”
-                          </button>
-                        </li>
-                      ))}
-                    </ul>
-                  </div>
-                )}
-              </div>
-            ) : (
-              <div>
-                {analyzing[panelKey] ? (
-                  <p style={{ margin: 0, fontSize: '0.9rem' }}>Đang phân tích…</p>
-                ) : (
-                  <button
-                    className="btn primary"
-                    onClick={() => void analyzeQuestion(aiPanelQ.pi, aiPanelQ.qi)}
-                  >
-                    <SparklesIcon width={15} height={15} />
-                    Phân tích với AI
-                  </button>
-                )}
-                {analyzeError[panelKey] && (
-                  <p style={{ margin: '8px 0 0', fontSize: '0.85rem', color: 'var(--wrong)' }}>
-                    {analyzeError[panelKey]}{' '}
-                    <button
-                      type="button"
-                      onClick={() => void analyzeQuestion(aiPanelQ.pi, aiPanelQ.qi)}
-                      style={{
-                        background: 'none',
-                        border: 'none',
-                        padding: 0,
-                        font: 'inherit',
-                        fontWeight: 700,
-                        color: 'var(--accent-strong)',
-                        cursor: 'pointer',
-                        textDecoration: 'underline',
-                      }}
-                    >
-                      Thử lại
-                    </button>
-                  </p>
-                )}
-              </div>
-            )}
-          </aside>
-        )}
       </main>
     );
   }
