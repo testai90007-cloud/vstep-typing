@@ -7,7 +7,7 @@
 // counters, confirm-before-submit, auto-submit at 0:00 and a beforeunload
 // guard so work isn't lost.
 
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import { useParams } from 'next/navigation';
 import { useSession } from 'next-auth/react';
@@ -23,7 +23,7 @@ import {
   SparklesIcon,
   SunIcon,
 } from '@heroicons/react/24/outline';
-import { WRITING_TESTS, type WritingTest } from '@/lib/writing-tests';
+import { loadWritingTest, type WritingTest } from '@/lib/writing-tests';
 import { getAiSettings } from '@/lib/aiKey';
 import { useIsDark } from '@/components/useIsDark';
 import {
@@ -60,19 +60,6 @@ function fmtDur(sec: number): string {
 type Stage = 'pick' | 'doing' | 'result';
 type Mode = 'practice' | 'mock';
 
-// Instruction verbs that mark a Part 1 prompt line as a bullet question.
-// Verified by counting first words of non-question lines across all 300
-// Part 1 prompts. 'Please' is a politeness prefix, not a verb — it catches
-// "Please describe…" style instruction lines.
-const IMPERATIVES = [
-  'Tell', 'Say', 'Suggest', 'Ask', 'Recommend', 'Explain', 'Give',
-  'Share', 'Describe', 'Include', 'Write',
-  'Mention', 'Provide', 'Introduce', 'Advise', 'Apologize', 'Inform',
-  'Answer', 'Express', 'State', 'List', 'Discuss', 'Request',
-  'Respond', 'Offer', 'Invite', 'Propose', 'Choose', 'Make',
-  'Review', 'Accept', 'Identify', 'Reply', 'Let', 'Please',
-];
-
 /**
  * PromptCard — renders a test prompt like the reference exam UI:
  * intro, an optional lead-in line, then a left-bordered quote block holding
@@ -93,18 +80,30 @@ function PromptCard({ part, taskNo }: { part: WritingTest['part1']; taskNo: 1 | 
     const rest = lines.slice(1);
     leadIn = rest.find((l) => /read (part of|the notes)|include the following/i.test(l));
     const others = rest.filter((l) => l !== leadIn);
-    bullets = others.filter(
-      (l) => l.trimEnd().endsWith('?') || IMPERATIVES.some((v) => l.startsWith(v + ' '))
+    // The 5000-test bank's Task 1 prompt is positional:
+    // [intro, situation, (Write-line)?, bullet…]. The Write-line
+    // ("Write a letter/email to …" / "In your letter, you should:")
+    // separates the situation from the instruction bullets; without it,
+    // everything after the situation is a bullet.
+    const writeIdx = others.findIndex((l) =>
+      /^write (an? (letter|email|formal)|the letter)|^in your (letter|email), you should/i.test(l)
     );
-    body = others.filter((l) => !bullets.includes(l));
+    if (writeIdx >= 0) {
+      body = others.slice(0, writeIdx + 1);
+      bullets = others.slice(writeIdx + 1);
+    } else if (others.length > 1) {
+      body = others.slice(0, 1);
+      bullets = others.slice(1);
+    } else {
+      body = others;
+    }
   } else {
     const rest = lines.slice(1);
     // The task instruction is the LAST line of a Part 2 prompt. Search from
     // the end so a background paragraph that happens to start with a
-    // question word never shadows it. Verified: matches the instruction
-    // in all 300/300 Part 2 prompts (Discuss / Do you agree / Do you think /
-    // In your opinion / Analyze / Give your opinion / Suggest / Write /
-    // Explain / To what extent / What / How / Why / Should …).
+    // question word never shadows it. It matches the instruction in most
+    // Part 2 prompts; statement-only questions (no question word) fall back
+    // to rendering as a background paragraph.
     const TASK_LINE_RE = /^(discuss|do you agree|do you think|in your opinion|analyze|give your opinion|suggest|write|explain|to what extent|what|how|why|should)/i;
     let taskLineIdx = -1;
     for (let i = rest.length - 1; i >= 0; i--) {
@@ -122,7 +121,9 @@ function PromptCard({ part, taskNo }: { part: WritingTest['part1']; taskNo: 1 | 
       <div className="prompt-head">
         <span className="chip">Task {taskNo}</span>
         <strong>{part.type}</strong>
+        {part.level && <span className="chip">{part.level}</span>}
       </div>
+      {part.vi && <p className="prompt-vi">{part.vi}</p>}
       {intro && <p className="prompt-intro">{intro}</p>}
       {leadIn && <p className="prompt-leadin">{leadIn}</p>}
       {taskNo === 1 ? (
@@ -874,7 +875,19 @@ function TaskBottomBar({ tab, setTab }: { tab: 1 | 2; setTab: (t: 1 | 2) => void
 export default function WritingTestPage() {
   const params = useParams();
   const id = Array.isArray(params.id) ? params.id[0] : params.id;
-  const test = useMemo(() => WRITING_TESTS.find((t) => t.id === id), [id]);
+  // The 5000-test bank is loaded on demand (one ~88 KB chunk per test),
+  // not bundled into the page. undefined = loading, null = not found.
+  const [test, setTest] = useState<WritingTest | null | undefined>(undefined);
+  useEffect(() => {
+    let cancelled = false;
+    setTest(undefined);
+    loadWritingTest(id).then((t) => {
+      if (!cancelled) setTest(t ?? null);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [id]);
   const { data: session, status: sessionStatus } = useSession();
   // theme: same site-wide toggle as the typing page (html[data-theme] + localStorage 'vstep_theme')
   const dark = useIsDark();
@@ -1210,6 +1223,20 @@ export default function WritingTestPage() {
     window.scrollTo({ top: 0 });
   }
 
+  if (test === undefined) {
+    return (
+      <main className="page">
+        <div className="nav-top">
+          <Link href="/writing" className="back">
+            <ArrowLeftIcon width={16} height={16} />
+            Luyện Writing
+          </Link>
+        </div>
+        <p>Đang tải đề…</p>
+      </main>
+    );
+  }
+
   if (!test) {
     return (
       <main className="page">
@@ -1275,7 +1302,7 @@ export default function WritingTestPage() {
             {test.title} <span className="hl">· Writing</span>
           </h1>
           <p className="lead">
-            Task 1 · Informal Email (tối thiểu 120 từ) + Task 2 · Essay (tối thiểu 250 từ) — {test.timeMin} phút như thi thật.
+            Task 1 · Thư / Email (tối thiểu 120 từ) + Task 2 · Bài luận (tối thiểu 250 từ) — {test.timeMin} phút như thi thật.
           </p>
 
           <div className="mode-cards">
