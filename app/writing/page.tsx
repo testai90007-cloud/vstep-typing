@@ -17,7 +17,7 @@ import { SwapText } from '@/components/SwapText';
 import { TestSearchBar, type SearchItem } from '@/components/TestSearchBar';
 import FluidTabs from '@/components/FluidTabs';
 import { TEMPLATES } from '@/lib/templates';
-import { WRITING_TESTS } from '@/lib/writing-tests';
+import { WRITING_TITLE_LIST } from '@/lib/writing-titles';
 import ExamFormatCard from '@/components/ExamFormatCard';
 
 type TplTab = 'task2' | 'task1';
@@ -69,18 +69,14 @@ export default function WritingIndexPage() {
       .catch(() => {});
   }, [session]);
 
-  const searchItems: SearchItem[] = WRITING_TESTS.map((t) => ({
-    id: t.id,
-    num: t.num,
-    title: t.title,
-  }));
+  const searchItems: SearchItem[] = [...WRITING_TITLE_LIST].sort((a, b) => b.num - a.num);
 
   const openTest = (item: SearchItem) => {
     router.push(`/writing/de-thi/${item.id}`);
   };
 
   const openRandom = () => {
-    const t = WRITING_TESTS[Math.floor(Math.random() * WRITING_TESTS.length)];
+    const t = WRITING_TITLE_LIST[Math.floor(Math.random() * WRITING_TITLE_LIST.length)];
     router.push(`/writing/de-thi/${t.id}`);
   };
 
@@ -126,7 +122,7 @@ export default function WritingIndexPage() {
           </span>
           Danh sách đề
         </h2>
-        <SpellBadge variant="neutral">{WRITING_TESTS.length} đề</SpellBadge>
+        <SpellBadge variant="neutral">{WRITING_TITLE_LIST.length} đề</SpellBadge>
       </div>
       <p className="lead" style={{ margin: '-4px 0 14px', fontSize: '0.9rem' }}>
         Gõ số đề để tìm nhanh, hoặc chọn một đề bên dưới — mỗi đề gồm Task 1
@@ -139,7 +135,7 @@ export default function WritingIndexPage() {
         onRandom={openRandom}
       />
       <div className="test-grid" style={{ marginTop: 16 }}>
-        {WRITING_TESTS.map((t) => (
+        {searchItems.map((t) => (
           <Link
             key={t.id}
             href={`/writing/de-thi/${t.id}`}
