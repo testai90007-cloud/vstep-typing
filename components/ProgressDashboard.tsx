@@ -21,8 +21,8 @@ import {
   StarIcon,
 } from '@heroicons/react/24/outline';
 import { getTemplate } from '@/lib/templates';
-// Title lookups use the generated id→title maps (lib/test-titles.ts, ~71 KB),
-// NOT the full question banks (~22 MB) — /progress must not bundle them.
+// Title lookups use the generated id→title maps (lib/test-titles.ts, ~320 KB),
+// NOT the full question banks (~33 MB) — /progress must not bundle them.
 import { LISTENING_TITLES, READING_TITLES, WRITING_TITLES } from '@/lib/test-titles';
 import { MODE_LABEL, SPEAK_LABEL, fmtDur } from '@/lib/format';
 import CountUp from '@/components/CountUp';
