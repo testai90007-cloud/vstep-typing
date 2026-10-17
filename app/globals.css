@@ -1467,6 +1467,7 @@ audio { accent-color: var(--accent); }
 .prompt-head strong { font-size: 0.95rem; letter-spacing: -0.01em; }
 .prompt-intro { margin: 0 0 10px; font-size: 0.95rem; line-height: 1.75; font-weight: 600; }
 .prompt-leadin { margin: 0 0 8px; font-size: 0.85rem; color: var(--muted); }
+.prompt-vi { margin: 0 0 10px; font-size: 0.85rem; color: var(--muted); line-height: 1.6; }
 .prompt-quote {
   margin: 0 0 4px; padding: 2px 0 2px 16px;
   border-left: 3px solid var(--accent);
