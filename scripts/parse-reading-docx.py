@@ -22,6 +22,7 @@ Validation is strict: any deviation aborts with a clear error, and nothing
 is written. Run: python3 scripts/parse-reading-docx.py
 """
 
+import html
 import json
 import re
 import sys
@@ -68,7 +69,8 @@ def para_texts(docx_path: Path) -> list[str]:
                 parts.append(m.group(1))
             else:
                 parts.append(" ")  # tab / line break
-        out.append("".join(parts).strip())
+        # <w:t> content is XML-escaped: "&amp;" in the XML is a literal "&".
+        out.append(html.unescape("".join(parts)).strip())
     return out
 
 
